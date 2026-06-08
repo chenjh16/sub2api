@@ -201,6 +201,13 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		body = sanitizedBody
 	}
 
+	apiKey := getAPIKeyFromContext(c)
+	defaultTierBody, _, injectErr := applyOpenAIGroupDefaultServiceTierToBody(body, apiKeyGroup(apiKey))
+	if injectErr != nil {
+		return nil, injectErr
+	}
+	body = defaultTierBody
+
 	// Apply OpenAI fast policy to the passthrough body (filter/block by service_tier).
 	// 统一使用 upstream 视角的 model：透传路径下 body 已经过 compact 映射 +
 	// OAuth normalize，body 中的 model 字段即上游真正会看到的 slug。
@@ -221,7 +228,6 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	}
 	body = updatedBody
 
-	apiKey := getAPIKeyFromContext(c)
 	// 同一 attempt 的最终 model/body 只判定一次，权限检查与后续图片状态设置共用该结果。
 	imageIntent := resolveOpenAIPassthroughImageIntent(
 		c,
