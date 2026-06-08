@@ -453,6 +453,20 @@ func (_c *GroupCreate) SetNillableDefaultMappedModel(v *string) *GroupCreate {
 	return _c
 }
 
+// SetOpenaiDefaultServiceTier sets the "openai_default_service_tier" field.
+func (_c *GroupCreate) SetOpenaiDefaultServiceTier(v string) *GroupCreate {
+	_c.mutation.SetOpenaiDefaultServiceTier(v)
+	return _c
+}
+
+// SetNillableOpenaiDefaultServiceTier sets the "openai_default_service_tier" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableOpenaiDefaultServiceTier(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetOpenaiDefaultServiceTier(*v)
+	}
+	return _c
+}
+
 // SetMessagesDispatchModelConfig sets the "messages_dispatch_model_config" field.
 func (_c *GroupCreate) SetMessagesDispatchModelConfig(v domain.OpenAIMessagesDispatchModelConfig) *GroupCreate {
 	_c.mutation.SetMessagesDispatchModelConfig(v)
@@ -708,6 +722,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultDefaultMappedModel
 		_c.mutation.SetDefaultMappedModel(v)
 	}
+	if _, ok := _c.mutation.OpenaiDefaultServiceTier(); !ok {
+		v := group.DefaultOpenaiDefaultServiceTier
+		_c.mutation.SetOpenaiDefaultServiceTier(v)
+	}
 	if _, ok := _c.mutation.MessagesDispatchModelConfig(); !ok {
 		v := group.DefaultMessagesDispatchModelConfig
 		_c.mutation.SetMessagesDispatchModelConfig(v)
@@ -811,6 +829,14 @@ func (_c *GroupCreate) check() error {
 	if v, ok := _c.mutation.DefaultMappedModel(); ok {
 		if err := group.DefaultMappedModelValidator(v); err != nil {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.OpenaiDefaultServiceTier(); !ok {
+		return &ValidationError{Name: "openai_default_service_tier", err: errors.New(`ent: missing required field "Group.openai_default_service_tier"`)}
+	}
+	if v, ok := _c.mutation.OpenaiDefaultServiceTier(); ok {
+		if err := group.OpenaiDefaultServiceTierValidator(v); err != nil {
+			return &ValidationError{Name: "openai_default_service_tier", err: fmt.Errorf(`ent: validator failed for field "Group.openai_default_service_tier": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.MessagesDispatchModelConfig(); !ok {
@@ -976,6 +1002,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
 		_node.DefaultMappedModel = value
+	}
+	if value, ok := _c.mutation.OpenaiDefaultServiceTier(); ok {
+		_spec.SetField(group.FieldOpenaiDefaultServiceTier, field.TypeString, value)
+		_node.OpenaiDefaultServiceTier = value
 	}
 	if value, ok := _c.mutation.MessagesDispatchModelConfig(); ok {
 		_spec.SetField(group.FieldMessagesDispatchModelConfig, field.TypeJSON, value)
@@ -1652,6 +1682,18 @@ func (u *GroupUpsert) SetDefaultMappedModel(v string) *GroupUpsert {
 // UpdateDefaultMappedModel sets the "default_mapped_model" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateDefaultMappedModel() *GroupUpsert {
 	u.SetExcluded(group.FieldDefaultMappedModel)
+	return u
+}
+
+// SetOpenaiDefaultServiceTier sets the "openai_default_service_tier" field.
+func (u *GroupUpsert) SetOpenaiDefaultServiceTier(v string) *GroupUpsert {
+	u.Set(group.FieldOpenaiDefaultServiceTier, v)
+	return u
+}
+
+// UpdateOpenaiDefaultServiceTier sets the "openai_default_service_tier" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateOpenaiDefaultServiceTier() *GroupUpsert {
+	u.SetExcluded(group.FieldOpenaiDefaultServiceTier)
 	return u
 }
 
@@ -2334,6 +2376,20 @@ func (u *GroupUpsertOne) SetDefaultMappedModel(v string) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateDefaultMappedModel() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDefaultMappedModel()
+	})
+}
+
+// SetOpenaiDefaultServiceTier sets the "openai_default_service_tier" field.
+func (u *GroupUpsertOne) SetOpenaiDefaultServiceTier(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetOpenaiDefaultServiceTier(v)
+	})
+}
+
+// UpdateOpenaiDefaultServiceTier sets the "openai_default_service_tier" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateOpenaiDefaultServiceTier() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateOpenaiDefaultServiceTier()
 	})
 }
 
@@ -3189,6 +3245,20 @@ func (u *GroupUpsertBulk) SetDefaultMappedModel(v string) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateDefaultMappedModel() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDefaultMappedModel()
+	})
+}
+
+// SetOpenaiDefaultServiceTier sets the "openai_default_service_tier" field.
+func (u *GroupUpsertBulk) SetOpenaiDefaultServiceTier(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetOpenaiDefaultServiceTier(v)
+	})
+}
+
+// UpdateOpenaiDefaultServiceTier sets the "openai_default_service_tier" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateOpenaiDefaultServiceTier() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateOpenaiDefaultServiceTier()
 	})
 }
 

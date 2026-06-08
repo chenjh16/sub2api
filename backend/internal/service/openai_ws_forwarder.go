@@ -2686,6 +2686,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			imageInputSize = imageCfg.InputSize
 		}
 
+		defaultTierPayload, _, defaultTierErr := applyOpenAIGroupDefaultServiceTierToWSResponseCreate(normalized, apiKeyGroup(apiKey))
+		if defaultTierErr != nil {
+			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", defaultTierErr)
+		}
+		normalized = defaultTierPayload
+
 		// Apply OpenAI Fast Policy on the response.create frame using the same
 		// evaluator/normalize/scope rules as the HTTP entrypoints. This is the
 		// single integration point for all WS ingress turns (first + follow-up

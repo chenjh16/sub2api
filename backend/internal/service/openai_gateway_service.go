@@ -2680,7 +2680,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 
-	if rawTier := requestView.ServiceTier; rawTier != "" {
+	requestServiceTier := requestView.ServiceTier
+	if defaultServiceTier := openAIGroupDefaultServiceTier(apiKeyGroup(apiKey)); defaultServiceTier != "" && !gjson.GetBytes(body, "service_tier").Exists() {
+		requestServiceTier = defaultServiceTier
+		markPatchSet("service_tier", defaultServiceTier)
+	}
+
+	if rawTier := requestServiceTier; rawTier != "" {
 		if normTier := normalizedOpenAIServiceTierValue(rawTier); normTier != "" {
 			action, errMsg := s.evaluateOpenAIFastPolicy(ctx, account, upstreamModel, normTier)
 			switch action {
@@ -3184,6 +3190,11 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	if policyModel == "" {
 		policyModel = reqModel
 	}
+	defaultTierBody, _, defaultTierErr := applyOpenAIGroupDefaultServiceTierToBody(body, apiKeyGroup(getAPIKeyFromContext(c)))
+	if defaultTierErr != nil {
+		return nil, defaultTierErr
+	}
+	body = defaultTierBody
 	updatedBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, policyModel, body)
 	if policyErr != nil {
 		var blocked *OpenAIFastBlockedError
@@ -6777,6 +6788,42 @@ func normalizeOpenAIServiceTier(raw string) *string {
 	default:
 		return nil
 	}
+}
+
+func normalizeOpenAIGroupDefaultServiceTier(raw string) string {
+	return normalizedOpenAIServiceTierValue(raw)
+}
+
+func openAIGroupDefaultServiceTier(group *Group) string {
+	if group == nil || group.Platform != PlatformOpenAI {
+		return ""
+	}
+	return normalizeOpenAIGroupDefaultServiceTier(group.OpenAIDefaultServiceTier)
+}
+
+func applyOpenAIGroupDefaultServiceTierToBody(body []byte, group *Group) ([]byte, string, error) {
+	defaultTier := openAIGroupDefaultServiceTier(group)
+	if defaultTier == "" || len(body) == 0 {
+		return body, "", nil
+	}
+	if gjson.GetBytes(body, "service_tier").Exists() {
+		return body, "", nil
+	}
+	updated, err := sjson.SetBytes(body, "service_tier", defaultTier)
+	if err != nil {
+		return body, "", fmt.Errorf("inject openai default service_tier: %w", err)
+	}
+	return updated, defaultTier, nil
+}
+
+func applyOpenAIGroupDefaultServiceTierToWSResponseCreate(frame []byte, group *Group) ([]byte, string, error) {
+	if len(frame) == 0 || !gjson.ValidBytes(frame) {
+		return frame, "", nil
+	}
+	if strings.TrimSpace(gjson.GetBytes(frame, "type").String()) != "response.create" {
+		return frame, "", nil
+	}
+	return applyOpenAIGroupDefaultServiceTierToBody(frame, group)
 }
 
 // OpenAIFastBlockedError indicates a request was rejected by the OpenAI fast

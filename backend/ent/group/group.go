@@ -80,6 +80,8 @@ const (
 	FieldRequirePrivacySet = "require_privacy_set"
 	// FieldDefaultMappedModel holds the string denoting the default_mapped_model field in the database.
 	FieldDefaultMappedModel = "default_mapped_model"
+	// FieldOpenaiDefaultServiceTier holds the string denoting the openai_default_service_tier field in the database.
+	FieldOpenaiDefaultServiceTier = "openai_default_service_tier"
 	// FieldMessagesDispatchModelConfig holds the string denoting the messages_dispatch_model_config field in the database.
 	FieldMessagesDispatchModelConfig = "messages_dispatch_model_config"
 	// FieldModelsListConfig holds the string denoting the models_list_config field in the database.
@@ -193,6 +195,7 @@ var Columns = []string{
 	FieldRequireOauthOnly,
 	FieldRequirePrivacySet,
 	FieldDefaultMappedModel,
+	FieldOpenaiDefaultServiceTier,
 	FieldMessagesDispatchModelConfig,
 	FieldModelsListConfig,
 	FieldRpmLimit,
@@ -277,6 +280,10 @@ var (
 	DefaultDefaultMappedModel string
 	// DefaultMappedModelValidator is a validator for the "default_mapped_model" field. It is called by the builders before save.
 	DefaultMappedModelValidator func(string) error
+	// DefaultOpenaiDefaultServiceTier holds the default value on creation for the "openai_default_service_tier" field.
+	DefaultOpenaiDefaultServiceTier string
+	// OpenaiDefaultServiceTierValidator is a validator for the "openai_default_service_tier" field. It is called by the builders before save.
+	OpenaiDefaultServiceTierValidator func(string) error
 	// DefaultMessagesDispatchModelConfig holds the default value on creation for the "messages_dispatch_model_config" field.
 	DefaultMessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig
 	// DefaultModelsListConfig holds the default value on creation for the "models_list_config" field.
@@ -441,6 +448,11 @@ func ByRequirePrivacySet(opts ...sql.OrderTermOption) OrderOption {
 // ByDefaultMappedModel orders the results by the default_mapped_model field.
 func ByDefaultMappedModel(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDefaultMappedModel, opts...).ToFunc()
+}
+
+// ByOpenaiDefaultServiceTier orders the results by the openai_default_service_tier field.
+func ByOpenaiDefaultServiceTier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOpenaiDefaultServiceTier, opts...).ToFunc()
 }
 
 // ByRpmLimit orders the results by the rpm_limit field.
