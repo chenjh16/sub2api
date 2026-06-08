@@ -310,6 +310,15 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		}
 	}
 
+	if updatedBody, appliedTier, injectErr := applyOpenAIGroupDefaultServiceTierToBody(responsesBody, apiKeyGroup(getAPIKeyFromContext(c))); injectErr != nil {
+		return nil, injectErr
+	} else {
+		responsesBody = updatedBody
+		if appliedTier != "" {
+			responsesReq.ServiceTier = appliedTier
+		}
+	}
+
 	// 4b. Apply OpenAI fast policy (may filter service_tier or block the request).
 	updatedBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, responsesBody)
 	if policyErr != nil {

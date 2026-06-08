@@ -1622,6 +1622,19 @@
             {{ t("admin.groups.openaiMessages.title") }}
           </h4>
 
+          <div class="mb-3">
+            <label class="input-label">{{
+              t("admin.groups.openaiMessages.defaultServiceTier")
+            }}</label>
+            <Select
+              v-model="createForm.openai_default_service_tier"
+              :options="openAIServiceTierOptions"
+            />
+            <p class="input-hint">
+              {{ t("admin.groups.openaiMessages.defaultServiceTierHint") }}
+            </p>
+          </div>
+
           <!-- 允许 Messages 调度开关 -->
           <div class="flex items-center justify-between">
             <label class="text-sm text-gray-600 dark:text-gray-400">{{
@@ -3272,6 +3285,19 @@
             {{ t("admin.groups.openaiMessages.title") }}
           </h4>
 
+          <div class="mb-3">
+            <label class="input-label">{{
+              t("admin.groups.openaiMessages.defaultServiceTier")
+            }}</label>
+            <Select
+              v-model="editForm.openai_default_service_tier"
+              :options="openAIServiceTierOptions"
+            />
+            <p class="input-hint">
+              {{ t("admin.groups.openaiMessages.defaultServiceTierHint") }}
+            </p>
+          </div>
+
           <!-- 允许 Messages 调度开关 -->
           <div class="flex items-center justify-between">
             <label class="text-sm text-gray-600 dark:text-gray-400">{{
@@ -4654,6 +4680,15 @@ const subscriptionTypeOptions = computed(() => [
   { value: "subscription", label: t("admin.groups.subscription.subscription") },
 ]);
 
+const openAIServiceTierOptions = computed(() => [
+  { value: "", label: t("admin.groups.openaiMessages.defaultServiceTierOff") },
+  { value: "priority", label: "priority (fast)" },
+  { value: "flex", label: "flex" },
+  { value: "auto", label: "auto" },
+  { value: "default", label: "default" },
+  { value: "scale", label: "scale" },
+]);
+
 // 降级分组选项（创建时）- 仅包含 anthropic 平台且未启用 claude_code_only 的分组
 const fallbackGroupOptions = computed(() => {
   const options: { value: number | null; label: string }[] = [
@@ -4977,6 +5012,7 @@ const createForm = reactive({
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
   allow_live: false,
+  openai_default_service_tier: "",
   opus_mapped_model: createMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: createMessagesDispatchDefaults.haiku_mapped_model,
@@ -5343,6 +5379,7 @@ const editForm = reactive({
   allow_messages_dispatch: false,
   allow_live: false,
   default_mapped_model: '',
+  openai_default_service_tier: "",
   opus_mapped_model: editMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: editMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: editMessagesDispatchDefaults.haiku_mapped_model,
@@ -5797,6 +5834,7 @@ const closeCreateModal = () => {
   createForm.fallback_group_id_on_invalid_request = null;
   resetMessagesDispatchFormState(createForm);
   createForm.allow_live = false;
+  createForm.openai_default_service_tier = "";
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
   createForm.supported_model_scopes = ["claude", "gemini_text", "gemini_image"];
@@ -5922,6 +5960,10 @@ const handleCreateGroup = async () => {
         createForm.platform,
         createForm.supported_model_scopes,
       ),
+      openai_default_service_tier:
+        createForm.platform === "openai"
+          ? createForm.openai_default_service_tier
+          : "",
       messages_dispatch_model_config:
         createForm.platform === "openai"
           ? messagesDispatchFormStateToConfig({
@@ -6082,6 +6124,8 @@ const handleEdit = async (group: AdminGroup) => {
     group.allow_messages_dispatch ||
     messagesDispatchFormState.allow_messages_dispatch;
   editForm.allow_live = group.allow_live ?? false;
+  editForm.openai_default_service_tier =
+    group.openai_default_service_tier || "";
   editForm.opus_mapped_model = messagesDispatchFormState.opus_mapped_model;
   editForm.sonnet_mapped_model = messagesDispatchFormState.sonnet_mapped_model;
   editForm.haiku_mapped_model = messagesDispatchFormState.haiku_mapped_model;
@@ -6177,6 +6221,7 @@ const closeEditModal = () => {
   editForm.audio_stt_price_per_hour = null;
   resetMessagesDispatchFormState(editForm);
   editForm.allow_live = false;
+  editForm.openai_default_service_tier = "";
   resetModelAllowlistState(editModelAllowlistState);
   editCodexManifestConfig.value = createCodexManifestDefaults();
   editCodexManifestAccountNames.value = {};
@@ -6270,6 +6315,10 @@ const handleUpdateGroup = async () => {
         editForm.platform,
         editForm.supported_model_scopes,
       ),
+      openai_default_service_tier:
+        editForm.platform === "openai"
+          ? editForm.openai_default_service_tier
+          : "",
       messages_dispatch_model_config:
         editForm.platform === "openai"
           ? messagesDispatchFormStateToConfig({
@@ -6660,6 +6709,7 @@ watch(
     }
     if (!supportsLivePlatform(newVal)) {
       createForm.allow_live = false;
+      createForm.openai_default_service_tier = "";
     }
     if (!isProfitControlPlatform(newVal)) {
       createForm.profit_control_enabled = false;
@@ -6717,6 +6767,7 @@ watch(
     }
     if (!supportsLivePlatform(newVal)) {
       editForm.allow_live = false;
+      editForm.openai_default_service_tier = "";
     }
     if (!isProfitControlPlatform(newVal)) {
       editForm.profit_control_enabled = false;
@@ -6774,6 +6825,7 @@ watch(
     if (!supportsMessagesDispatchPlatform(newVal)) {
       editForm.allow_messages_dispatch = false
       editForm.default_mapped_model = ''
+      editForm.openai_default_service_tier = ''
     }
     if (!supportsLivePlatform(newVal)) {
       editForm.allow_live = false

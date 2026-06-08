@@ -92,6 +92,11 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(upstreamBody, upstreamModel); normalized {
 		upstreamBody = normalizedBody
 	}
+	defaultTierBody, _, injectErr := applyOpenAIGroupDefaultServiceTierToBody(upstreamBody, apiKeyGroup(getAPIKeyFromContext(c)))
+	if injectErr != nil {
+		return nil, injectErr
+	}
+	upstreamBody = defaultTierBody
 
 	// 4. Apply OpenAI fast policy on the CC body
 	updatedBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, upstreamBody)
@@ -140,6 +145,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 			addOpenAIUsage(&bridgeUsage, usage)
 		}
 	}
+	serviceTier := extractOpenAIServiceTierFromBody(upstreamBody)
 
 	if clientStream {
 		var usageErr error
