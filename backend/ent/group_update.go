@@ -1079,6 +1079,20 @@ func (_u *GroupUpdate) SetNillableDefaultMappedModel(v *string) *GroupUpdate {
 	return _u
 }
 
+// SetOpenaiDefaultServiceTier sets the "openai_default_service_tier" field.
+func (_u *GroupUpdate) SetOpenaiDefaultServiceTier(v string) *GroupUpdate {
+	_u.mutation.SetOpenaiDefaultServiceTier(v)
+	return _u
+}
+
+// SetNillableOpenaiDefaultServiceTier sets the "openai_default_service_tier" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableOpenaiDefaultServiceTier(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetOpenaiDefaultServiceTier(*v)
+	}
+	return _u
+}
+
 // SetMessagesDispatchModelConfig sets the "messages_dispatch_model_config" field.
 func (_u *GroupUpdate) SetMessagesDispatchModelConfig(v domain.OpenAIMessagesDispatchModelConfig) *GroupUpdate {
 	_u.mutation.SetMessagesDispatchModelConfig(v)
@@ -1558,6 +1572,11 @@ func (_u *GroupUpdate) check() error {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.OpenaiDefaultServiceTier(); ok {
+		if err := group.OpenaiDefaultServiceTierValidator(v); err != nil {
+			return &ValidationError{Name: "openai_default_service_tier", err: fmt.Errorf(`ent: validator failed for field "Group.openai_default_service_tier": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.MaxReasoningEffort(); ok {
 		if err := group.MaxReasoningEffortValidator(v); err != nil {
 			return &ValidationError{Name: "max_reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "Group.max_reasoning_effort": %w`, err)}
@@ -1898,6 +1917,9 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.OpenaiDefaultServiceTier(); ok {
+		_spec.SetField(group.FieldOpenaiDefaultServiceTier, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.MessagesDispatchModelConfig(); ok {
 		_spec.SetField(group.FieldMessagesDispatchModelConfig, field.TypeJSON, value)
@@ -3299,6 +3321,20 @@ func (_u *GroupUpdateOne) SetNillableDefaultMappedModel(v *string) *GroupUpdateO
 	return _u
 }
 
+// SetOpenaiDefaultServiceTier sets the "openai_default_service_tier" field.
+func (_u *GroupUpdateOne) SetOpenaiDefaultServiceTier(v string) *GroupUpdateOne {
+	_u.mutation.SetOpenaiDefaultServiceTier(v)
+	return _u
+}
+
+// SetNillableOpenaiDefaultServiceTier sets the "openai_default_service_tier" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableOpenaiDefaultServiceTier(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetOpenaiDefaultServiceTier(*v)
+	}
+	return _u
+}
+
 // SetMessagesDispatchModelConfig sets the "messages_dispatch_model_config" field.
 func (_u *GroupUpdateOne) SetMessagesDispatchModelConfig(v domain.OpenAIMessagesDispatchModelConfig) *GroupUpdateOne {
 	_u.mutation.SetMessagesDispatchModelConfig(v)
@@ -3791,6 +3827,11 @@ func (_u *GroupUpdateOne) check() error {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.OpenaiDefaultServiceTier(); ok {
+		if err := group.OpenaiDefaultServiceTierValidator(v); err != nil {
+			return &ValidationError{Name: "openai_default_service_tier", err: fmt.Errorf(`ent: validator failed for field "Group.openai_default_service_tier": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.MaxReasoningEffort(); ok {
 		if err := group.MaxReasoningEffortValidator(v); err != nil {
 			return &ValidationError{Name: "max_reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "Group.max_reasoning_effort": %w`, err)}
@@ -4148,6 +4189,9 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.OpenaiDefaultServiceTier(); ok {
+		_spec.SetField(group.FieldOpenaiDefaultServiceTier, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.MessagesDispatchModelConfig(); ok {
 		_spec.SetField(group.FieldMessagesDispatchModelConfig, field.TypeJSON, value)

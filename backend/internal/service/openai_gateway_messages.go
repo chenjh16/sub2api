@@ -318,6 +318,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		}
 	}
 
+	if updatedBody, appliedTier, injectErr := applyOpenAIGroupDefaultServiceTierToBody(responsesBody, apiKeyGroup(getAPIKeyFromContext(c))); injectErr != nil {
+		return nil, injectErr
+	} else {
+		responsesBody = updatedBody
+		if appliedTier != "" {
+			responsesReq.ServiceTier = appliedTier
+		}
+	}
+
 	if err := validateGPT61CompatRequest(responsesBody, upstreamModel); err != nil {
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
@@ -354,6 +363,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			return nil, fmt.Errorf("apply grok Free function-tool cache route: %w", patchErr)
 		}
 	}
+	responsesReq.ServiceTier = normalizedOpenAIServiceTierValue(gjson.GetBytes(responsesBody, "service_tier").String())
 
 	// 5. Get access token
 	token, _, err := s.getRequestCredential(ctx, c, account)
