@@ -69,9 +69,6 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	}
 	clientStream := gjson.GetBytes(body, "stream").Bool()
 
-	// 1b. Extract service tier from the raw body before any transformation.
-	serviceTier := extractOpenAIServiceTierFromBody(body)
-
 	// 2. Resolve model mapping (same as ForwardAsChatCompletions)
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
@@ -93,6 +90,11 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(upstreamBody, upstreamModel); normalized {
 		upstreamBody = normalizedBody
 	}
+	defaultTierBody, _, injectErr := applyOpenAIGroupDefaultServiceTierToBody(upstreamBody, apiKeyGroup(getAPIKeyFromContext(c)))
+	if injectErr != nil {
+		return nil, injectErr
+	}
+	upstreamBody = defaultTierBody
 
 	// 4. Apply OpenAI fast policy on the CC body
 	updatedBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, upstreamBody)
@@ -131,6 +133,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 			addOpenAIUsage(&bridgeUsage, usage)
 		}
 	}
+	serviceTier := extractOpenAIServiceTierFromBody(upstreamBody)
 
 	if clientStream {
 		var usageErr error

@@ -1075,6 +1075,10 @@ export default {
       },
       openaiMessages: {
         title: 'OpenAI Messages Dispatch',
+        defaultServiceTier: 'Default service_tier',
+        defaultServiceTierOff: 'Do not inject',
+        defaultServiceTierHint:
+          'OpenAI Responses, Chat Completions, and Realtime requests without an explicit service_tier will use this value. Explicit client values are preserved.',
         allowDispatch: 'Allow /v1/messages dispatch',
         allowDispatchHint: 'When enabled, API keys in this OpenAI group can dispatch requests through /v1/messages endpoint',
         familyMappingTitle: 'Family Default Mapping',

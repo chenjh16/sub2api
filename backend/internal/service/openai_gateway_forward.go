@@ -444,7 +444,24 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 
-	if rawTier := requestView.ServiceTier; rawTier != "" {
+	if defaultTier := openAIGroupDefaultServiceTier(apiKeyGroup(apiKey)); defaultTier != "" && !gjson.GetBytes(body, "service_tier").Exists() {
+		action, errMsg := s.evaluateOpenAIFastPolicy(ctx, account, upstreamModel, defaultTier)
+		switch action {
+		case BetaPolicyActionBlock:
+			msg := errMsg
+			if msg == "" {
+				msg = fmt.Sprintf("openai service_tier=%s is not allowed for model %s", defaultTier, upstreamModel)
+			}
+			blocked := &OpenAIFastBlockedError{Message: msg}
+			writeOpenAIFastPolicyBlockedResponse(c, blocked)
+			return nil, blocked
+		case BetaPolicyActionFilter:
+		case OpenAIFastPolicyActionForcePriority:
+			markPatchSet("service_tier", OpenAIFastTierPriority)
+		default:
+			markPatchSet("service_tier", defaultTier)
+		}
+	} else if rawTier := requestView.ServiceTier; rawTier != "" {
 		if normTier := normalizedOpenAIServiceTierValue(rawTier); normTier != "" {
 			action, errMsg := s.evaluateOpenAIFastPolicy(ctx, account, upstreamModel, normTier)
 			switch action {

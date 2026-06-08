@@ -208,6 +208,10 @@ func (Group) Fields() []ent.Field {
 			MaxLen(100).
 			Default("").
 			Comment("默认映射模型 ID，当账号级映射找不到时使用此值"),
+		field.String("openai_default_service_tier").
+			MaxLen(20).
+			Default("").
+			Comment("OpenAI 分组默认 service_tier；空表示不自动注入"),
 		field.JSON("messages_dispatch_model_config", domain.OpenAIMessagesDispatchModelConfig{}).
 			Default(domain.OpenAIMessagesDispatchModelConfig{}).
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).

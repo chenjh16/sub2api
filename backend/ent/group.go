@@ -111,6 +111,8 @@ type Group struct {
 	RequirePrivacySet bool `json:"require_privacy_set,omitempty"`
 	// 默认映射模型 ID，当账号级映射找不到时使用此值
 	DefaultMappedModel string `json:"default_mapped_model,omitempty"`
+	// OpenAI 分组默认 service_tier；空表示不自动注入
+	OpenaiDefaultServiceTier string `json:"openai_default_service_tier,omitempty"`
 	// OpenAI Messages 调度模型配置：按 Claude 系列/精确模型映射到目标 GPT 模型
 	MessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`
 	// 自定义 /v1/models 展示列表配置；仅影响模型列表响应，不影响调度
@@ -235,7 +237,7 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldRpmLimit:
 			values[i] = new(sql.NullInt64)
-		case group.FieldName, group.FieldDescription, group.FieldPeakStart, group.FieldPeakEnd, group.FieldStatus, group.FieldDuplicateOperationID, group.FieldPlatform, group.FieldSubscriptionType, group.FieldDefaultMappedModel, group.FieldMaxReasoningEffort:
+		case group.FieldName, group.FieldDescription, group.FieldPeakStart, group.FieldPeakEnd, group.FieldStatus, group.FieldDuplicateOperationID, group.FieldPlatform, group.FieldSubscriptionType, group.FieldDefaultMappedModel, group.FieldOpenaiDefaultServiceTier, group.FieldMaxReasoningEffort:
 			values[i] = new(sql.NullString)
 		case group.FieldCreatedAt, group.FieldUpdatedAt, group.FieldDeletedAt:
 			values[i] = new(sql.NullTime)
@@ -555,6 +557,12 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.DefaultMappedModel = value.String
 			}
+		case group.FieldOpenaiDefaultServiceTier:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field openai_default_service_tier", values[i])
+			} else if value.Valid {
+				_m.OpenaiDefaultServiceTier = value.String
+			}
 		case group.FieldMessagesDispatchModelConfig:
 			if value, ok := values[i].(*[]byte); !ok {
 				return fmt.Errorf("unexpected type %T for field messages_dispatch_model_config", values[i])
@@ -834,6 +842,9 @@ func (_m *Group) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("default_mapped_model=")
 	builder.WriteString(_m.DefaultMappedModel)
+	builder.WriteString(", ")
+	builder.WriteString("openai_default_service_tier=")
+	builder.WriteString(_m.OpenaiDefaultServiceTier)
 	builder.WriteString(", ")
 	builder.WriteString("messages_dispatch_model_config=")
 	builder.WriteString(fmt.Sprintf("%v", _m.MessagesDispatchModelConfig))

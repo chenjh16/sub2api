@@ -1155,6 +1155,12 @@ func init() {
 	group.DefaultDefaultMappedModel = groupDescDefaultMappedModel.Default.(string)
 	// group.DefaultMappedModelValidator is a validator for the "default_mapped_model" field. It is called by the builders before save.
 	group.DefaultMappedModelValidator = groupDescDefaultMappedModel.Validators[0].(func(string) error)
+	// groupDescOpenaiDefaultServiceTier is the schema descriptor for openai_default_service_tier field.
+	groupDescOpenaiDefaultServiceTier := groupFields[41].Descriptor()
+	// group.DefaultOpenaiDefaultServiceTier holds the default value on creation for the openai_default_service_tier field.
+	group.DefaultOpenaiDefaultServiceTier = groupDescOpenaiDefaultServiceTier.Default.(string)
+	// group.OpenaiDefaultServiceTierValidator is a validator for the "openai_default_service_tier" field. It is called by the builders before save.
+	group.OpenaiDefaultServiceTierValidator = groupDescOpenaiDefaultServiceTier.Validators[0].(func(string) error)
 	// groupDescMessagesDispatchModelConfig is the schema descriptor for messages_dispatch_model_config field.
 	groupDescMessagesDispatchModelConfig := groupFields[43].Descriptor()
 	// group.DefaultMessagesDispatchModelConfig holds the default value on creation for the messages_dispatch_model_config field.

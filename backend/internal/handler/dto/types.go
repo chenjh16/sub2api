@@ -162,6 +162,7 @@ type AdminGroup struct {
 
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
 	DefaultMappedModel          string                                   `json:"default_mapped_model"`
+	OpenAIDefaultServiceTier    string                                   `json:"openai_default_service_tier"`
 	MessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
 	ModelsListConfig            domain.GroupModelsListConfig             `json:"models_list_config"`
 
