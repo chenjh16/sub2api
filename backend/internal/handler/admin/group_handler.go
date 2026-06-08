@@ -242,6 +242,7 @@ type CreateGroupRequest struct {
 	RequireOAuthOnly            bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           bool                                      `json:"require_privacy_set"`
 	DefaultMappedModel          string                                    `json:"default_mapped_model"`
+	OpenAIDefaultServiceTier    string                                    `json:"openai_default_service_tier"`
 	MessagesDispatchModelConfig service.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
 	ModelAllowlist              service.GroupModelAllowlist               `json:"model_allowlist"`
 	// 固定账号 manifest 配置；创建路径禁止开启，仅编辑可配置。
@@ -318,6 +319,7 @@ type UpdateGroupRequest struct {
 	RequireOAuthOnly            *bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           *bool                                      `json:"require_privacy_set"`
 	DefaultMappedModel          *string                                    `json:"default_mapped_model"`
+	OpenAIDefaultServiceTier    *string                                    `json:"openai_default_service_tier"`
 	MessagesDispatchModelConfig *service.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
 	ModelAllowlist              *service.GroupModelAllowlist               `json:"model_allowlist"`
 	// 固定账号 manifest 配置；nil 表示不修改。
@@ -720,6 +722,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		RequireOAuthOnly:                req.RequireOAuthOnly,
 		RequirePrivacySet:               req.RequirePrivacySet,
 		DefaultMappedModel:              req.DefaultMappedModel,
+		OpenAIDefaultServiceTier:        req.OpenAIDefaultServiceTier,
 		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
 		ModelAllowlist:                  req.ModelAllowlist,
 		CodexModelsManifestConfig:       req.CodexModelsManifestConfig,
@@ -867,6 +870,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		RequireOAuthOnly:                req.RequireOAuthOnly,
 		RequirePrivacySet:               req.RequirePrivacySet,
 		DefaultMappedModel:              req.DefaultMappedModel,
+		OpenAIDefaultServiceTier:        req.OpenAIDefaultServiceTier,
 		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
 		ModelAllowlist:                  req.ModelAllowlist,
 		CodexModelsManifestConfig:       req.CodexModelsManifestConfig,
