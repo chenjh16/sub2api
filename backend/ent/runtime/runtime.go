@@ -1179,12 +1179,18 @@ func init() {
 	group.DefaultDefaultMappedModel = groupDescDefaultMappedModel.Default.(string)
 	// group.DefaultMappedModelValidator is a validator for the "default_mapped_model" field. It is called by the builders before save.
 	group.DefaultMappedModelValidator = groupDescDefaultMappedModel.Validators[0].(func(string) error)
+	// groupDescOpenaiDefaultServiceTier is the schema descriptor for openai_default_service_tier field.
+	groupDescOpenaiDefaultServiceTier := groupFields[53].Descriptor()
+	// group.DefaultOpenaiDefaultServiceTier holds the default value on creation for the openai_default_service_tier field.
+	group.DefaultOpenaiDefaultServiceTier = groupDescOpenaiDefaultServiceTier.Default.(string)
+	// group.OpenaiDefaultServiceTierValidator is a validator for the "openai_default_service_tier" field. It is called by the builders before save.
+	group.OpenaiDefaultServiceTierValidator = groupDescOpenaiDefaultServiceTier.Validators[0].(func(string) error)
 	// groupDescMessagesDispatchModelConfig is the schema descriptor for messages_dispatch_model_config field.
-	groupDescMessagesDispatchModelConfig := groupFields[53].Descriptor()
+	groupDescMessagesDispatchModelConfig := groupFields[54].Descriptor()
 	// group.DefaultMessagesDispatchModelConfig holds the default value on creation for the messages_dispatch_model_config field.
 	group.DefaultMessagesDispatchModelConfig = groupDescMessagesDispatchModelConfig.Default.(domain.OpenAIMessagesDispatchModelConfig)
 	// groupDescModelsListConfig is the schema descriptor for models_list_config field.
-	groupDescModelsListConfig := groupFields[54].Descriptor()
+	groupDescModelsListConfig := groupFields[55].Descriptor()
 	// group.DefaultModelsListConfig holds the default value on creation for the models_list_config field.
 	group.DefaultModelsListConfig = groupDescModelsListConfig.Default.(domain.GroupModelsListConfig)
 	// groupDescCodexModelsManifestConfig is the schema descriptor for codex_models_manifest_config field.

@@ -626,11 +626,15 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	rawTier := requestView.ServiceTier
+	tierFromGroupDefault := false
 	if openAIGroupForcesFast(ctx, account) {
 		rawTier = OpenAIFastTierPriority
 		if requestView.ServiceTier != OpenAIFastTierPriority {
 			markPatchSet("service_tier", OpenAIFastTierPriority)
 		}
+	} else if defaultTier := openAIGroupDefaultServiceTier(apiKeyGroup(apiKey)); defaultTier != "" && !gjson.GetBytes(body, "service_tier").Exists() {
+		rawTier = defaultTier
+		tierFromGroupDefault = true
 	}
 	if rawTier != "" {
 		if normTier := normalizedOpenAIServiceTierValue(rawTier); normTier != "" {
@@ -651,7 +655,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					markPatchSet("service_tier", OpenAIFastTierPriority)
 				}
 			default:
-				if normTier != rawTier {
+				if tierFromGroupDefault || normTier != rawTier {
 					markPatchSet("service_tier", normTier)
 				}
 			}

@@ -108,6 +108,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetRequireOauthOnly(groupIn.RequireOAuthOnly).
 		SetRequirePrivacySet(groupIn.RequirePrivacySet).
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
+		SetOpenaiDefaultServiceTier(groupIn.OpenAIDefaultServiceTier).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig).
 		SetModelsListConfig(groupIn.ModelsListConfig).
 		SetCodexModelsManifestConfig(groupIn.CodexModelsManifestConfig).
@@ -288,6 +289,7 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetRequireOauthOnly(groupIn.RequireOAuthOnly).
 		SetRequirePrivacySet(groupIn.RequirePrivacySet).
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
+		SetOpenaiDefaultServiceTier(groupIn.OpenAIDefaultServiceTier).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig).
 		SetModelsListConfig(groupIn.ModelsListConfig).
 		SetCodexModelsManifestConfig(groupIn.CodexModelsManifestConfig).

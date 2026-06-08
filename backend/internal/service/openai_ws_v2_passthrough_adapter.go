@@ -768,6 +768,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if accountScoped {
 		firstClientMessage = accountScopedFirst
 	}
+	apiKey := getAPIKeyFromContext(c)
+	defaultFirst, _, defaultFirstErr := applyOpenAIGroupDefaultServiceTierToWSResponseCreate(firstClientMessage, apiKeyGroup(apiKey))
+	if defaultFirstErr != nil {
+		return fmt.Errorf("inject openai default service_tier on first ws frame: %w", defaultFirstErr)
+	}
+	firstClientMessage = defaultFirst
 	usageMeta := newOpenAIWSPassthroughUsageMeta(initialRequestModel, firstClientMessage)
 	updatedFirst, blocked, policyErr := s.applyOpenAIFastPolicyToWSResponseCreate(ctx, account, capturedSessionModel, firstClientMessage)
 	if policyErr != nil {
@@ -1090,7 +1096,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if isResponseCreate && model != "" && model != strings.TrimSpace(gjson.GetBytes(payload, "model").String()) {
 				payload = s.ReplaceModelInBody(payload, model)
 			}
-			out, blocked, policyErr := s.applyOpenAIFastPolicyToWSResponseCreate(ctx, account, model, payload)
+			defaultPayload, _, defaultErr := applyOpenAIGroupDefaultServiceTierToWSResponseCreate(payload, apiKeyGroup(apiKey))
+			if defaultErr != nil {
+				return payload, nil, defaultErr
+			}
+			out, blocked, policyErr := s.applyOpenAIFastPolicyToWSResponseCreate(ctx, account, model, defaultPayload)
 			// 多轮 passthrough usage：仅在成功（non-block / non-err）
 			// 的 response.create 帧上更新 usageMeta，使用
 			// filter 处理后的 payload，与首帧 policy-after-extract 语义
