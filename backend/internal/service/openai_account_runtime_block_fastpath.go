@@ -16,6 +16,7 @@ const (
 	openAIOAuth429RetryDelay              = 500 * time.Millisecond
 	openAIOAuth429MaxRetryDelay           = 8 * time.Second
 	openAIOAuth429MaxAccountAttempts      = 3
+	openAIUpstreamCooldownFallback        = 10 * time.Minute
 	openAIStopSchedulingBridgeCooldown    = 2 * time.Minute
 	openAIOAuth429StormWindow             = 10 * time.Second
 	openAIOAuth429StormMaxAccountSwitches = 1
@@ -142,6 +143,13 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 			_ = s.rateLimitService.HandleOpenAIImageCapabilityLoss(stateCtx, account, statusCode, responseBody)
 		}
 		return false
+	}
+
+	if isOpenAIUpstreamCooldownFailoverError(statusCode, responseBody) {
+		if s != nil && account != nil {
+			s.BlockAccountScheduling(account, time.Now().Add(openAIUpstreamCooldownFallback), "rate_limit_cooldown")
+		}
+		return true
 	}
 
 	if s == nil || account == nil {
