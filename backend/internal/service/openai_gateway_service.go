@@ -1176,6 +1176,20 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 	return match(string(upstreamBody))
 }
 
+func isOpenAIUpstreamCooldownFailoverError(upstreamStatusCode int, upstreamBody []byte) bool {
+	if upstreamStatusCode != http.StatusBadRequest || len(upstreamBody) == 0 || !gjson.ValidBytes(upstreamBody) {
+		return false
+	}
+
+	errCode := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.code").String()))
+	topLevelCode := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "code").String()))
+	limitType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "limit_type").String()))
+
+	return errCode == "rate_limit_cooldown" ||
+		topLevelCode == "rate_limit_cooldown" ||
+		limitType == "cooldown"
+}
+
 // ExtractSessionID extracts the raw session ID from headers or body without hashing.
 // Used by ForwardAsAnthropic to pass as prompt_cache_key for upstream cache.
 func (s *OpenAIGatewayService) ExtractSessionID(c *gin.Context, body []byte) string {
@@ -2320,6 +2334,9 @@ func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool 
 
 func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	if s.shouldFailoverUpstreamError(statusCode) {
+		return true
+	}
+	if isOpenAIUpstreamCooldownFailoverError(statusCode, upstreamBody) {
 		return true
 	}
 	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)

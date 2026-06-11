@@ -9,6 +9,7 @@ import (
 const (
 	openAIAccountStateUpdateTimeout       = 5 * time.Second
 	openAIOAuth429FallbackCooldown        = 5 * time.Second
+	openAIUpstreamCooldownFallback        = 10 * time.Minute
 	openAIStopSchedulingBridgeCooldown    = 2 * time.Minute
 	openAIOAuth429StormWindow             = 10 * time.Second
 	openAIOAuth429StormThreshold          = 20
@@ -40,6 +41,13 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 			_ = s.rateLimitService.HandleOpenAIImageRateLimit(stateCtx, account, statusCode, headers, responseBody)
 		}
 		return false
+	}
+
+	if isOpenAIUpstreamCooldownFailoverError(statusCode, responseBody) {
+		if s != nil && account != nil {
+			s.BlockAccountScheduling(account, time.Now().Add(openAIUpstreamCooldownFallback), "rate_limit_cooldown")
+		}
+		return true
 	}
 
 	if statusCode == http.StatusTooManyRequests {

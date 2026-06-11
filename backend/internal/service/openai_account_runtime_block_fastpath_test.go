@@ -35,6 +35,44 @@ func TestOpenAIRuntimeBlock_AppliesToOpenAIAPIKeyWhenRateLimitServiceStopsSchedu
 	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
+func TestOpenAIUpstreamCooldownError_RuntimeBlocksForTenMinutes(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := &Account{ID: 4401, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	start := time.Now()
+
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusBadRequest,
+		http.Header{},
+		[]byte(`{"error":{"code":"rate_limit_cooldown","message":"cooling down"},"code":"rate_limit_cooldown","limit_type":"cooldown"}`),
+	)
+
+	require.True(t, shouldDisable)
+	value, ok := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
+	require.True(t, ok)
+	actualUntil, ok := value.(time.Time)
+	require.True(t, ok)
+	require.WithinDuration(t, start.Add(openAIUpstreamCooldownFallback), actualUntil, 2*time.Second)
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
+func TestOpenAIUpstreamCooldownError_DoesNotUsePlainMessageFallback(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := &Account{ID: 4402, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusBadRequest,
+		http.Header{},
+		[]byte(`{"error":{"message":"公益服务器压力很大，休息十分钟换key开放"},"message":"公益服务器压力很大，休息十分钟换key开放"}`),
+	)
+
+	require.False(t, shouldDisable)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
 func TestOpenAIRuntimeBlock_DoesNotApplyToOtherPlatforms(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	account := &Account{ID: 45, Platform: PlatformGemini, Type: AccountTypeOAuth}

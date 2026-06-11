@@ -241,6 +241,66 @@ func TestIsOpenAITransientProcessingError(t *testing.T) {
 	))
 }
 
+func TestIsOpenAIUpstreamCooldownFailoverError(t *testing.T) {
+	cooldownMessage := "公益服务器压力很大，休息十分钟换key开放，感谢每一个陪伴着"
+
+	tests := []struct {
+		name       string
+		statusCode int
+		body       []byte
+		want       bool
+	}{
+		{
+			name:       "nested error code",
+			statusCode: http.StatusBadRequest,
+			body:       []byte(`{"error":{"message":"cooling down","type":"invalid_request_error","code":"rate_limit_cooldown"}}`),
+			want:       true,
+		},
+		{
+			name:       "top level code",
+			statusCode: http.StatusBadRequest,
+			body:       []byte(`{"message":"cooling down","code":"rate_limit_cooldown"}`),
+			want:       true,
+		},
+		{
+			name:       "structured limit type",
+			statusCode: http.StatusBadRequest,
+			body:       []byte(`{"message":"cooling down","limit_type":"cooldown"}`),
+			want:       true,
+		},
+		{
+			name:       "plain upstream message body is not enough",
+			statusCode: http.StatusBadRequest,
+			body:       []byte(cooldownMessage),
+			want:       false,
+		},
+		{
+			name:       "json message without structured cooldown is not enough",
+			statusCode: http.StatusBadRequest,
+			body:       []byte(`{"error":{"message":"公益服务器压力很大，休息十分钟换key开放"},"message":"公益服务器压力很大，休息十分钟换key开放"}`),
+			want:       false,
+		},
+		{
+			name:       "normal bad request",
+			statusCode: http.StatusBadRequest,
+			body:       []byte(`{"error":{"message":"Missing required parameter: instructions","type":"invalid_request_error"}}`),
+			want:       false,
+		},
+		{
+			name:       "structured cooldown only applies to 400",
+			statusCode: http.StatusForbidden,
+			body:       []byte(`{"error":{"code":"rate_limit_cooldown"},"limit_type":"cooldown"}`),
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isOpenAIUpstreamCooldownFailoverError(tt.statusCode, tt.body))
+		})
+	}
+}
+
 func TestOpenAIGatewayService_Forward_LogsInstructionsRequiredDetails(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	logSink, restore := captureStructuredLog(t)
