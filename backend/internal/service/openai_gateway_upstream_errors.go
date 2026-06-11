@@ -209,6 +209,20 @@ func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 	return match(string(upstreamBody))
 }
 
+func isOpenAIUpstreamCooldownFailoverError(upstreamStatusCode int, upstreamBody []byte) bool {
+	if upstreamStatusCode != http.StatusBadRequest || len(upstreamBody) == 0 || !gjson.ValidBytes(upstreamBody) {
+		return false
+	}
+
+	errCode := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.code").String()))
+	topLevelCode := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "code").String()))
+	limitType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "limit_type").String()))
+
+	return errCode == "rate_limit_cooldown" ||
+		topLevelCode == "rate_limit_cooldown" ||
+		limitType == "cooldown"
+}
+
 func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool {
 	switch statusCode {
 	case 401, 402, 403, 429, 529:
@@ -226,6 +240,9 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 		return true
 	}
 	if s.shouldFailoverUpstreamError(statusCode) {
+		return true
+	}
+	if isOpenAIUpstreamCooldownFailoverError(statusCode, upstreamBody) {
 		return true
 	}
 	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
