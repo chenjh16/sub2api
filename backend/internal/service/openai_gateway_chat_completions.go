@@ -391,6 +391,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		}
 		return s.handleChatCompletionsErrorResponse(resp, c, account, billingModel)
 	}
+	s.clearOpenAIConsecutiveFailures(account)
 
 	// 9. Handle normal response
 	var result *OpenAIForwardResult

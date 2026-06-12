@@ -118,6 +118,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		}
 		return s.handleErrorResponse(ctx, resp, c, account, chatBody, billingModel)
 	}
+	s.clearOpenAIConsecutiveFailures(account)
 
 	if clientStream {
 		return s.streamChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
