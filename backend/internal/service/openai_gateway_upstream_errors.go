@@ -279,11 +279,22 @@ func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool 
 	case 401, 402, 403, 405, 429, 529:
 		return true
 	default:
-		return statusCode >= 500
+		return false
 	}
 }
 
 func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Account, statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	return s.shouldFailoverOpenAIUpstreamResponseWithContext(context.Background(), account, statusCode, nil, upstreamMsg, upstreamBody)
+}
+
+func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponseWithContext(
+	ctx context.Context,
+	account *Account,
+	statusCode int,
+	headers http.Header,
+	upstreamMsg string,
+	upstreamBody []byte,
+) bool {
 	// cyber_policy is request-scoped even when an intermediary wraps the
 	// provider response in a retryable 5xx status. Never punish or rotate the
 	// selected credential for it.
@@ -312,18 +323,8 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 		isOpenAICompatibleModelNotFound400(upstreamBody) {
 		return true
 	}
-	if s.shouldFailoverUpstreamError(statusCode) {
-		return true
-	}
-	if s.isOpenAIStructured400FailoverEnabled(context.Background()) {
-		if isOpenAIUpstreamCooldownFailoverError(statusCode, upstreamBody) {
-			return true
-		}
-		if isOpenAIUpstreamRateLimitExceededFailoverError(statusCode, upstreamBody) {
-			return true
-		}
-	}
-	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
+	decision := s.decideOpenAIUpstreamHTTPFailover(ctx, account, statusCode, headers, upstreamMsg, upstreamBody)
+	return decision != nil && decision.Failover
 }
 
 func isOpenAICompatibleModelNotFound400(respBody []byte) bool {
