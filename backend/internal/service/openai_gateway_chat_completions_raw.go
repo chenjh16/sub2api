@@ -281,6 +281,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
+	contentBlocker := s.newOpenAI200ContentBlockerDetector(c.Request.Context())
 
 	writeLine := func(line string) {
 		if clientDisconnected {
@@ -321,6 +322,13 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			trimmedPayload := strings.TrimSpace(payload)
 			if trimmedPayload != "[DONE]" {
 				observer.ObserveOpenAI([]byte(payload), strings.TrimSpace(gjson.Get(payload, "type").String()))
+				if matched, keyword := contentBlocker.ObservePayload([]byte(payload)); matched {
+					failoverErr := s.newOpenAI200ContentBlockerFailoverError(c, account, requestID, keyword)
+					if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+						return nil, failoverErr
+					}
+					return nil, openAI200ContentBlockerMatchedAfterOutputError()
+				}
 				usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
 				if u := extractCCStreamUsage(payload); u != nil {
 					usage = *u
@@ -452,6 +460,9 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		observer = beginUpstreamResponseModelObservation(c)
 	}
 	observer.ObserveOpenAI(respBody, strings.TrimSpace(gjson.GetBytes(respBody, "type").String()))
+	if failoverErr := s.checkOpenAI200ContentBlocker(c.Request.Context(), c, account, requestID, respBody); failoverErr != nil {
+		return nil, failoverErr
+	}
 
 	var usage OpenAIUsage
 	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
