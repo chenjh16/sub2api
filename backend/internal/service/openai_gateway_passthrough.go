@@ -243,6 +243,8 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	s.clearOpenAIConsecutiveFailures(account)
+
 	serviceTier := extractOpenAIServiceTierFromBody(body)
 
 	var usage *OpenAIUsage

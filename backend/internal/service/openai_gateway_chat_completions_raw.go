@@ -206,6 +206,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		}
 		return s.handleChatCompletionsErrorResponse(resp, c, account, billingModel)
 	}
+	s.clearOpenAIConsecutiveFailures(account)
 
 	if account.Platform == PlatformGrok {
 		s.updateGrokUsageFromResponse(ctx, account, resp.Header, resp.StatusCode)
