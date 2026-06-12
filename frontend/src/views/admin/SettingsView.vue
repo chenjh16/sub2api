@@ -435,256 +435,436 @@
               </div>
 
               <template v-else>
-                <div class="flex items-center justify-between gap-6">
-                  <div>
-                    <label class="font-medium text-gray-900 dark:text-white">
-                      {{
-                        t("admin.settings.gatewayFailoverPolicy.structured400")
-                      }}
-                    </label>
-                    <p class="text-sm text-gray-500 dark:text-gray-400">
-                      {{
-                        t(
-                          "admin.settings.gatewayFailoverPolicy.structured400Hint",
-                        )
-                      }}
-                    </p>
+                <div
+                  class="flex flex-col gap-3 border-b border-gray-100 pb-4 dark:border-dark-700 md:flex-row md:items-end md:justify-between"
+                >
+                  <div class="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{ t("admin.settings.gatewayFailoverPolicy.matchMode") }}
+                      </label>
+                      <select
+                        v-model="gatewayFailoverPolicyForm.match_mode"
+                        class="input w-40"
+                      >
+                        <option value="first">
+                          {{ t("admin.settings.gatewayFailoverPolicy.matchModeFirst") }}
+                        </option>
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{ t("admin.settings.gatewayFailoverPolicy.ruleCount") }}
+                      </label>
+                      <div
+                        class="flex h-10 items-center text-sm text-gray-600 dark:text-gray-300"
+                      >
+                        {{ gatewayFailoverPolicyForm.rules?.length || 0 }}
+                      </div>
+                    </div>
                   </div>
-                  <Toggle
-                    v-model="gatewayFailoverPolicyForm.structured_400_enabled"
-                  />
+                  <div class="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      @click="setGatewayFailoverJsonMode(!gatewayFailoverPolicyJsonMode)"
+                    >
+                      {{
+                        gatewayFailoverPolicyJsonMode
+                          ? t("admin.settings.gatewayFailoverPolicy.visualMode")
+                          : t("admin.settings.gatewayFailoverPolicy.jsonMode")
+                      }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      @click="addGatewayFailoverRule"
+                    >
+                      {{ t("admin.settings.gatewayFailoverPolicy.addRule") }}
+                    </button>
+                  </div>
                 </div>
 
-                <div
-                  class="space-y-5 border-t border-gray-100 pt-4 dark:border-dark-700"
-                >
-                  <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                    <div
-                      v-if="
-                        gatewayFailoverPolicyForm.structured_400_enabled
-                      "
+                <div v-if="gatewayFailoverPolicyJsonMode" class="space-y-3">
+                  <textarea
+                    v-model="gatewayFailoverPolicyJsonText"
+                    rows="22"
+                    class="input min-h-[420px] w-full font-mono text-xs leading-5"
+                    spellcheck="false"
+                  ></textarea>
+                  <div class="flex justify-end">
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      @click="parseGatewayFailoverPolicyJsonText"
                     >
-                      <label
-                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                      >
-                        {{
-                          t(
-                            "admin.settings.gatewayFailoverPolicy.structured400Cooldown",
-                          )
-                        }}
-                      </label>
-                      <input
-                        v-model.number="
-                          gatewayFailoverPolicyForm.structured_400_cooldown_minutes
-                        "
-                        type="number"
-                        min="1"
-                        max="720"
-                        class="input w-32"
-                      />
-                      <p
-                        class="mt-1.5 text-xs text-gray-500 dark:text-gray-400"
-                      >
-                        {{
-                          t(
-                            "admin.settings.gatewayFailoverPolicy.structured400CooldownHint",
-                          )
-                        }}
-                      </p>
-                    </div>
-
-                    <div>
-                      <label
-                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                      >
-                        {{
-                          t(
-                            "admin.settings.gatewayFailoverPolicy.jitterPercent",
-                          )
-                        }}
-                      </label>
-                      <input
-                        v-model.number="
-                          gatewayFailoverPolicyForm.failure_cooldown_jitter_percent
-                        "
-                        type="number"
-                        min="0"
-                        max="100"
-                        class="input w-32"
-                      />
-                      <p
-                        class="mt-1.5 text-xs text-gray-500 dark:text-gray-400"
-                      >
-                        {{
-                          t(
-                            "admin.settings.gatewayFailoverPolicy.jitterPercentHint",
-                          )
-                        }}
-                      </p>
-                    </div>
+                      {{ t("admin.settings.gatewayFailoverPolicy.applyJson") }}
+                    </button>
                   </div>
+                </div>
 
-                  <div class="flex items-center justify-between gap-6">
-                    <div>
-                      <label class="font-medium text-gray-900 dark:text-white">
-                        {{ t("admin.settings.gatewayFailoverPolicy.http5xx") }}
-                      </label>
-                      <p class="text-sm text-gray-500 dark:text-gray-400">
-                        {{
-                          t("admin.settings.gatewayFailoverPolicy.http5xxHint")
-                        }}
-                      </p>
-                    </div>
-                    <Toggle
-                      v-model="
-                        gatewayFailoverPolicyForm.http_5xx_cooldown_enabled
+                <div v-else class="grid gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.35fr)]">
+                  <div class="space-y-2">
+                    <button
+                      v-for="(rule, index) in gatewayFailoverPolicyForm.rules"
+                      :key="rule.id || index"
+                      type="button"
+                      class="w-full rounded-md border px-4 py-3 text-left transition"
+                      :class="
+                        index === gatewayFailoverPolicySelectedRuleIndex
+                          ? 'border-primary-300 bg-primary-50 dark:border-primary-700 dark:bg-primary-900/20'
+                          : 'border-gray-200 bg-white hover:border-gray-300 dark:border-dark-700 dark:bg-dark-800 dark:hover:border-dark-600'
                       "
-                    />
+                      @click="gatewayFailoverPolicySelectedRuleIndex = index"
+                    >
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                          <div class="flex flex-wrap items-center gap-2">
+                            <span
+                              class="truncate font-medium text-gray-900 dark:text-white"
+                            >
+                              {{ rule.name || rule.id }}
+                            </span>
+                            <span
+                              class="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+                            >
+                              {{ gatewayFailoverRuleEventLabel(rule.event) }}
+                            </span>
+                            <span
+                              class="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+                            >
+                              P{{ rule.priority }}
+                            </span>
+                          </div>
+                          <div class="mt-1 truncate font-mono text-xs text-gray-500 dark:text-gray-400">
+                            {{ rule.id }}
+                          </div>
+                          <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            {{ gatewayFailoverRuleCooldownLabel(rule) }}
+                          </div>
+                        </div>
+                        <div class="flex shrink-0 items-center gap-2" @click.stop>
+                          <Toggle v-model="rule.enabled" />
+                        </div>
+                      </div>
+                      <div class="mt-3 flex flex-wrap gap-2" @click.stop>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-xs"
+                          @click="duplicateGatewayFailoverRule(index)"
+                        >
+                          {{ t("common.copy") }}
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-danger btn-xs"
+                          :disabled="(gatewayFailoverPolicyForm.rules?.length || 0) <= 1"
+                          @click="removeGatewayFailoverRule(index)"
+                        >
+                          {{ t("common.delete") }}
+                        </button>
+                      </div>
+                    </button>
                   </div>
 
                   <div
-                    v-if="
-                      gatewayFailoverPolicyForm.http_5xx_cooldown_enabled
-                    "
-                    class="grid gap-4 md:grid-cols-3"
+                    v-if="selectedGatewayFailoverRule"
+                    class="space-y-5 rounded-md border border-gray-200 p-4 dark:border-dark-700"
                   >
-                    <div>
-                      <label
-                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                      >
-                        {{ t("admin.settings.gatewayFailoverPolicy.threshold") }}
-                      </label>
-                      <input
-                        v-model.number="
-                          gatewayFailoverPolicyForm.http_5xx_threshold
-                        "
-                        type="number"
-                        min="1"
-                        max="20"
-                        class="input w-32"
-                      />
+                    <div class="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.ruleName") }}
+                        </label>
+                        <input v-model="selectedGatewayFailoverRule.name" class="input" />
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.ruleId") }}
+                        </label>
+                        <input v-model="selectedGatewayFailoverRule.id" class="input font-mono" />
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.event") }}
+                        </label>
+                        <select v-model="selectedGatewayFailoverRule.event" class="input">
+                          <option value="http_response">
+                            {{ t("admin.settings.gatewayFailoverPolicy.httpEvent") }}
+                          </option>
+                          <option value="transport_error">
+                            {{ t("admin.settings.gatewayFailoverPolicy.transportEvent") }}
+                          </option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.priority") }}
+                        </label>
+                        <input
+                          v-model.number="selectedGatewayFailoverRule.priority"
+                          type="number"
+                          class="input"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label
-                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                      >
-                        {{
-                          t("admin.settings.gatewayFailoverPolicy.windowSeconds")
-                        }}
-                      </label>
-                      <input
-                        v-model.number="
-                          gatewayFailoverPolicyForm.http_5xx_window_seconds
-                        "
-                        type="number"
-                        min="1"
-                        max="3600"
-                        class="input w-32"
-                      />
-                    </div>
-                    <div>
-                      <label
-                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                      >
-                        {{
-                          t(
-                            "admin.settings.gatewayFailoverPolicy.cooldownSeconds",
-                          )
-                        }}
-                      </label>
-                      <input
-                        v-model.number="
-                          gatewayFailoverPolicyForm.http_5xx_cooldown_seconds
-                        "
-                        type="number"
-                        min="1"
-                        max="7200"
-                        class="input w-32"
-                      />
-                    </div>
-                  </div>
 
-                  <div class="flex items-center justify-between gap-6">
                     <div>
-                      <label class="font-medium text-gray-900 dark:text-white">
-                        {{
-                          t("admin.settings.gatewayFailoverPolicy.transport")
-                        }}
+                      <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        {{ t("admin.settings.gatewayFailoverPolicy.descriptionLabel") }}
                       </label>
-                      <p class="text-sm text-gray-500 dark:text-gray-400">
-                        {{
-                          t(
-                            "admin.settings.gatewayFailoverPolicy.transportHint",
-                          )
-                        }}
-                      </p>
+                      <textarea
+                        v-model="selectedGatewayFailoverRule.description"
+                        rows="2"
+                        class="input"
+                      ></textarea>
                     </div>
-                    <Toggle
-                      v-model="
-                        gatewayFailoverPolicyForm.transport_cooldown_enabled
-                      "
-                    />
-                  </div>
 
-                  <div
-                    v-if="
-                      gatewayFailoverPolicyForm.transport_cooldown_enabled
-                    "
-                    class="grid gap-4 md:grid-cols-3"
-                  >
-                    <div>
-                      <label
-                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                      >
-                        {{ t("admin.settings.gatewayFailoverPolicy.threshold") }}
-                      </label>
-                      <input
-                        v-model.number="
-                          gatewayFailoverPolicyForm.transport_threshold
-                        "
-                        type="number"
-                        min="1"
-                        max="20"
-                        class="input w-32"
-                      />
+                    <div class="grid gap-4 md:grid-cols-3">
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.statusCodes") }}
+                        </label>
+                        <input
+                          :value="formatNumberList(selectedGatewayFailoverRule.match.status_codes)"
+                          class="input font-mono"
+                          placeholder="400, 429"
+                          @change="
+                            selectedGatewayFailoverRule.match.status_codes = parseNumberList(inputText($event));
+                            refreshGatewayFailoverPolicyJson();
+                          "
+                        />
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.excludeStatusCodes") }}
+                        </label>
+                        <input
+                          :value="formatNumberList(selectedGatewayFailoverRule.match.exclude_status_codes)"
+                          class="input font-mono"
+                          placeholder="529"
+                          @change="
+                            selectedGatewayFailoverRule.match.exclude_status_codes = parseNumberList(inputText($event));
+                            refreshGatewayFailoverPolicyJson();
+                          "
+                        />
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.transportPersistent") }}
+                        </label>
+                        <select
+                          :value="
+                            selectedGatewayFailoverRule.match.transport_persistent === undefined
+                              ? ''
+                              : String(selectedGatewayFailoverRule.match.transport_persistent)
+                          "
+                          class="input"
+                          @change="setGatewayFailoverTransportPersistent(inputText($event))"
+                        >
+                          <option value="">
+                            {{ t("admin.settings.gatewayFailoverPolicy.any") }}
+                          </option>
+                          <option value="false">
+                            {{ t("admin.settings.gatewayFailoverPolicy.transient") }}
+                          </option>
+                          <option value="true">
+                            {{ t("admin.settings.gatewayFailoverPolicy.persistent") }}
+                          </option>
+                        </select>
+                      </div>
                     </div>
+
                     <div>
-                      <label
-                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                      >
-                        {{
-                          t("admin.settings.gatewayFailoverPolicy.windowSeconds")
-                        }}
+                      <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        {{ t("admin.settings.gatewayFailoverPolicy.statusRanges") }}
                       </label>
-                      <input
-                        v-model.number="
-                          gatewayFailoverPolicyForm.transport_window_seconds
+                      <textarea
+                        :value="formatStatusRanges(selectedGatewayFailoverRule.match.status_ranges)"
+                        rows="2"
+                        class="input font-mono text-xs"
+                        placeholder="500-599"
+                        @change="
+                          selectedGatewayFailoverRule.match.status_ranges = parseStatusRanges(inputText($event));
+                          refreshGatewayFailoverPolicyJson();
                         "
-                        type="number"
-                        min="1"
-                        max="3600"
-                        class="input w-32"
-                      />
+                      ></textarea>
                     </div>
-                    <div>
-                      <label
-                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                      >
-                        {{
-                          t(
-                            "admin.settings.gatewayFailoverPolicy.cooldownSeconds",
-                          )
-                        }}
-                      </label>
-                      <input
-                        v-model.number="
-                          gatewayFailoverPolicyForm.transport_cooldown_seconds
-                        "
-                        type="number"
-                        min="1"
-                        max="7200"
-                        class="input w-32"
-                      />
+
+                    <div class="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.jsonLogic") }}
+                        </label>
+                        <select v-model="selectedGatewayFailoverRule.match.json_logic" class="input">
+                          <option value="all">all</option>
+                          <option value="any">any</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.headerLogic") }}
+                        </label>
+                        <select v-model="selectedGatewayFailoverRule.match.header_logic" class="input">
+                          <option value="all">all</option>
+                          <option value="any">any</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div class="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.jsonConditions") }}
+                        </label>
+                        <textarea
+                          :value="formatJsonArray(selectedGatewayFailoverRule.match.json_conditions)"
+                          rows="7"
+                          class="input font-mono text-xs"
+                          spellcheck="false"
+                          @change="setGatewayFailoverRuleJsonField('json_conditions', inputText($event))"
+                        ></textarea>
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.headerConditions") }}
+                        </label>
+                        <textarea
+                          :value="formatJsonArray(selectedGatewayFailoverRule.match.header_conditions)"
+                          rows="7"
+                          class="input font-mono text-xs"
+                          spellcheck="false"
+                          @change="setGatewayFailoverRuleJsonField('header_conditions', inputText($event))"
+                        ></textarea>
+                      </div>
+                    </div>
+
+                    <div class="grid gap-4 md:grid-cols-3">
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.messageConditions") }}
+                        </label>
+                        <textarea
+                          :value="formatJsonArray(selectedGatewayFailoverRule.match.message_conditions)"
+                          rows="5"
+                          class="input font-mono text-xs"
+                          spellcheck="false"
+                          @change="setGatewayFailoverRuleJsonField('message_conditions', inputText($event))"
+                        ></textarea>
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.bodyConditions") }}
+                        </label>
+                        <textarea
+                          :value="formatJsonArray(selectedGatewayFailoverRule.match.body_conditions)"
+                          rows="5"
+                          class="input font-mono text-xs"
+                          spellcheck="false"
+                          @change="setGatewayFailoverRuleJsonField('body_conditions', inputText($event))"
+                        ></textarea>
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.transportConditions") }}
+                        </label>
+                        <textarea
+                          :value="formatJsonArray(selectedGatewayFailoverRule.match.transport_conditions)"
+                          rows="5"
+                          class="input font-mono text-xs"
+                          spellcheck="false"
+                          @change="setGatewayFailoverRuleJsonField('transport_conditions', inputText($event))"
+                        ></textarea>
+                      </div>
+                    </div>
+
+                    <div class="grid gap-4 md:grid-cols-3">
+                      <div class="flex items-center justify-between gap-4 rounded-md border border-gray-100 px-3 py-2 dark:border-dark-700">
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.consecutive") }}
+                        </span>
+                        <Toggle v-model="selectedGatewayFailoverRule.match.consecutive!.enabled" />
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.threshold") }}
+                        </label>
+                        <input
+                          v-model.number="selectedGatewayFailoverRule.match.consecutive!.threshold"
+                          type="number"
+                          min="1"
+                          max="20"
+                          class="input"
+                        />
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.windowSeconds") }}
+                        </label>
+                        <input
+                          v-model.number="selectedGatewayFailoverRule.match.consecutive!.window_seconds"
+                          type="number"
+                          min="1"
+                          max="3600"
+                          class="input"
+                        />
+                      </div>
+                    </div>
+
+                    <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+                      <div class="flex items-center justify-between gap-4 rounded-md border border-gray-100 px-3 py-2 dark:border-dark-700">
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.failover") }}
+                        </span>
+                        <Toggle v-model="selectedGatewayFailoverRule.action.failover" />
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.cooldownScope") }}
+                        </label>
+                        <select v-model="selectedGatewayFailoverRule.action.cooldown_scope" class="input">
+                          <option value="none">none</option>
+                          <option value="runtime">runtime</option>
+                          <option value="temp_unsched">temp_unsched</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.cooldownSeconds") }}
+                        </label>
+                        <input
+                          v-model.number="selectedGatewayFailoverRule.action.cooldown_seconds"
+                          type="number"
+                          min="0"
+                          max="7200"
+                          class="input"
+                        />
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.jitterPercent") }}
+                        </label>
+                        <input
+                          v-model.number="selectedGatewayFailoverRule.action.jitter_percent"
+                          type="number"
+                          min="0"
+                          max="100"
+                          class="input"
+                        />
+                      </div>
+                      <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.reason") }}
+                        </label>
+                        <input
+                          v-model="selectedGatewayFailoverRule.action.reason"
+                          class="input font-mono"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -7478,6 +7658,7 @@ import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import { useClipboard } from "@/composables/useClipboard";
 import { affiliatesAPI, type AffiliateAdminEntry, type SimpleUser as AffiliateSimpleUser } from "@/api/admin/affiliates";
+import type { GatewayFailoverPolicySettings, GatewayFailoverRule } from "@/api/admin/settings";
 import { extractApiErrorMessage, extractI18nErrorMessage } from "@/utils/apiError";
 import { useAppStore } from "@/stores";
 import { useAdminSettingsStore } from "@/stores/adminSettings";
@@ -7623,7 +7804,12 @@ const rateLimit429CooldownForm = reactive({
 // Gateway Failover Policy 状态
 const gatewayFailoverPolicyLoading = ref(true);
 const gatewayFailoverPolicySaving = ref(false);
-const gatewayFailoverPolicyForm = reactive({
+const gatewayFailoverPolicyJsonMode = ref(false);
+const gatewayFailoverPolicyJsonText = ref("");
+const gatewayFailoverPolicySelectedRuleIndex = ref(0);
+const gatewayFailoverPolicyForm = reactive<GatewayFailoverPolicySettings>({
+  match_mode: "first",
+  rules: [],
   structured_400_enabled: true,
   structured_400_cooldown_minutes: 10,
   failure_cooldown_jitter_percent: 20,
@@ -7636,6 +7822,250 @@ const gatewayFailoverPolicyForm = reactive({
   transport_window_seconds: 30,
   transport_cooldown_seconds: 120,
 });
+const selectedGatewayFailoverRule = computed(
+  () => gatewayFailoverPolicyForm.rules?.[gatewayFailoverPolicySelectedRuleIndex.value] ?? null,
+);
+
+function cloneGatewayFailoverRule(rule: GatewayFailoverRule): GatewayFailoverRule {
+  return JSON.parse(JSON.stringify(rule)) as GatewayFailoverRule;
+}
+
+function cloneGatewayFailoverPolicySettings(): GatewayFailoverPolicySettings {
+  return JSON.parse(JSON.stringify(gatewayFailoverPolicyForm)) as GatewayFailoverPolicySettings;
+}
+
+function createGatewayFailoverRule(): GatewayFailoverRule {
+  const suffix = Date.now().toString(36);
+  return {
+    id: `custom_rule_${suffix}`,
+    name: t("admin.settings.gatewayFailoverPolicy.newRule"),
+    description: "",
+    enabled: true,
+    priority: 500,
+    event: "http_response",
+    match: {
+      status_codes: [400],
+      json_logic: "all",
+      json_conditions: [],
+      header_logic: "all",
+      header_conditions: [],
+      message_conditions: [],
+      body_conditions: [],
+      transport_conditions: [],
+    },
+    action: {
+      failover: true,
+      cooldown_scope: "runtime",
+      cooldown_seconds: 600,
+      jitter_percent: 0,
+      reason: "custom_failover",
+    },
+  };
+}
+
+function normalizeGatewayFailoverRuleForEdit(rule: GatewayFailoverRule): GatewayFailoverRule {
+  const normalized = cloneGatewayFailoverRule(rule);
+  normalized.match = normalized.match || {};
+  normalized.match.status_codes = normalized.match.status_codes || [];
+  normalized.match.status_ranges = normalized.match.status_ranges || [];
+  normalized.match.exclude_status_codes = normalized.match.exclude_status_codes || [];
+  normalized.match.json_logic = normalized.match.json_logic || "all";
+  normalized.match.json_conditions = normalized.match.json_conditions || [];
+  normalized.match.header_logic = normalized.match.header_logic || "all";
+  normalized.match.header_conditions = normalized.match.header_conditions || [];
+  normalized.match.message_conditions = normalized.match.message_conditions || [];
+  normalized.match.body_conditions = normalized.match.body_conditions || [];
+  normalized.match.transport_conditions = normalized.match.transport_conditions || [];
+  normalized.match.consecutive = normalized.match.consecutive || {
+    enabled: false,
+    threshold: 3,
+    window_seconds: 30,
+  };
+  normalized.action = normalized.action || {
+    failover: true,
+    cooldown_scope: "runtime",
+    cooldown_seconds: 600,
+    jitter_percent: 0,
+    reason: normalized.id || "custom_failover",
+  };
+  return normalized;
+}
+
+function applyGatewayFailoverPolicySettings(settings: GatewayFailoverPolicySettings) {
+  gatewayFailoverPolicyForm.match_mode = settings.match_mode || "first";
+  gatewayFailoverPolicyForm.rules = (settings.rules || []).map(normalizeGatewayFailoverRuleForEdit);
+  gatewayFailoverPolicyForm.structured_400_enabled = settings.structured_400_enabled;
+  gatewayFailoverPolicyForm.structured_400_cooldown_minutes = settings.structured_400_cooldown_minutes;
+  gatewayFailoverPolicyForm.failure_cooldown_jitter_percent = settings.failure_cooldown_jitter_percent;
+  gatewayFailoverPolicyForm.http_5xx_cooldown_enabled = settings.http_5xx_cooldown_enabled;
+  gatewayFailoverPolicyForm.http_5xx_threshold = settings.http_5xx_threshold;
+  gatewayFailoverPolicyForm.http_5xx_window_seconds = settings.http_5xx_window_seconds;
+  gatewayFailoverPolicyForm.http_5xx_cooldown_seconds = settings.http_5xx_cooldown_seconds;
+  gatewayFailoverPolicyForm.transport_cooldown_enabled = settings.transport_cooldown_enabled;
+  gatewayFailoverPolicyForm.transport_threshold = settings.transport_threshold;
+  gatewayFailoverPolicyForm.transport_window_seconds = settings.transport_window_seconds;
+  gatewayFailoverPolicyForm.transport_cooldown_seconds = settings.transport_cooldown_seconds;
+  if (gatewayFailoverPolicySelectedRuleIndex.value >= gatewayFailoverPolicyForm.rules.length) {
+    gatewayFailoverPolicySelectedRuleIndex.value = Math.max(0, gatewayFailoverPolicyForm.rules.length - 1);
+  }
+  refreshGatewayFailoverPolicyJson();
+}
+
+function refreshGatewayFailoverPolicyJson() {
+  gatewayFailoverPolicyJsonText.value = JSON.stringify(
+    {
+      match_mode: gatewayFailoverPolicyForm.match_mode || "first",
+      rules: gatewayFailoverPolicyForm.rules || [],
+    },
+    null,
+    2,
+  );
+}
+
+function parseGatewayFailoverPolicyJsonText(): boolean {
+  try {
+    const parsed = JSON.parse(gatewayFailoverPolicyJsonText.value);
+    const rules = Array.isArray(parsed) ? parsed : parsed?.rules;
+    if (!Array.isArray(rules)) {
+      throw new Error(t("admin.settings.gatewayFailoverPolicy.jsonRulesRequired"));
+    }
+    gatewayFailoverPolicyForm.match_mode = Array.isArray(parsed) ? "first" : parsed.match_mode || "first";
+    gatewayFailoverPolicyForm.rules = rules.map(normalizeGatewayFailoverRuleForEdit);
+    gatewayFailoverPolicySelectedRuleIndex.value = Math.min(
+      gatewayFailoverPolicySelectedRuleIndex.value,
+      Math.max(0, gatewayFailoverPolicyForm.rules.length - 1),
+    );
+    refreshGatewayFailoverPolicyJson();
+    return true;
+  } catch (error) {
+    appStore.showError(
+      error instanceof Error
+        ? error.message
+        : t("admin.settings.gatewayFailoverPolicy.jsonInvalid"),
+    );
+    return false;
+  }
+}
+
+function setGatewayFailoverJsonMode(enabled: boolean) {
+  gatewayFailoverPolicyJsonMode.value = enabled;
+  if (enabled) {
+    refreshGatewayFailoverPolicyJson();
+  } else if (gatewayFailoverPolicyJsonText.value.trim()) {
+    parseGatewayFailoverPolicyJsonText();
+  }
+}
+
+function addGatewayFailoverRule() {
+  gatewayFailoverPolicyForm.rules = gatewayFailoverPolicyForm.rules || [];
+  gatewayFailoverPolicyForm.rules.push(createGatewayFailoverRule());
+  gatewayFailoverPolicySelectedRuleIndex.value = gatewayFailoverPolicyForm.rules.length - 1;
+  refreshGatewayFailoverPolicyJson();
+}
+
+function duplicateGatewayFailoverRule(index: number) {
+  const source = gatewayFailoverPolicyForm.rules?.[index];
+  if (!source) return;
+  const cloned = cloneGatewayFailoverRule(source);
+  cloned.id = `${cloned.id || "rule"}_copy_${Date.now().toString(36)}`;
+  cloned.name = `${cloned.name || cloned.id} Copy`;
+  gatewayFailoverPolicyForm.rules?.splice(index + 1, 0, cloned);
+  gatewayFailoverPolicySelectedRuleIndex.value = index + 1;
+  refreshGatewayFailoverPolicyJson();
+}
+
+function removeGatewayFailoverRule(index: number) {
+  if (!gatewayFailoverPolicyForm.rules || gatewayFailoverPolicyForm.rules.length <= 1) return;
+  gatewayFailoverPolicyForm.rules.splice(index, 1);
+  gatewayFailoverPolicySelectedRuleIndex.value = Math.min(
+    gatewayFailoverPolicySelectedRuleIndex.value,
+    gatewayFailoverPolicyForm.rules.length - 1,
+  );
+  refreshGatewayFailoverPolicyJson();
+}
+
+function gatewayFailoverRuleEventLabel(event: string) {
+  return event === "transport_error"
+    ? t("admin.settings.gatewayFailoverPolicy.transportEvent")
+    : t("admin.settings.gatewayFailoverPolicy.httpEvent");
+}
+
+function gatewayFailoverRuleCooldownLabel(rule: GatewayFailoverRule) {
+  if (!rule.action || rule.action.cooldown_scope === "none" || !rule.action.cooldown_seconds) {
+    return t("admin.settings.gatewayFailoverPolicy.noCooldown");
+  }
+  return `${rule.action.cooldown_scope}/${rule.action.cooldown_seconds}s`;
+}
+
+function inputText(event: Event): string {
+  const target = event.target as HTMLInputElement | HTMLTextAreaElement | null;
+  return target?.value ?? "";
+}
+
+function parseNumberList(value: string): number[] {
+  return value
+    .split(/[,\s]+/)
+    .map((item) => Number.parseInt(item, 10))
+    .filter((item) => Number.isFinite(item));
+}
+
+function formatNumberList(value?: number[]): string {
+  return (value || []).join(", ");
+}
+
+function parseStatusRanges(value: string) {
+  return value
+    .split(/\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const [minRaw, maxRaw] = item.split("-").map((part) => Number.parseInt(part.trim(), 10));
+      const max = Number.isFinite(maxRaw) ? maxRaw : minRaw;
+      return { min: minRaw, max };
+    })
+    .filter((item) => Number.isFinite(item.min) && Number.isFinite(item.max));
+}
+
+function formatStatusRanges(value?: Array<{ min: number; max: number }>): string {
+  return (value || []).map((item) => `${item.min}-${item.max}`).join("\n");
+}
+
+function formatJsonArray(value: unknown): string {
+  return JSON.stringify(value || [], null, 2);
+}
+
+function parseJsonArray<T>(value: string, fallback: T[]): T[] | null {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    if (!Array.isArray(parsed)) {
+      throw new Error();
+    }
+    return parsed as T[];
+  } catch (_error) {
+    appStore.showError(t("admin.settings.gatewayFailoverPolicy.jsonInvalid"));
+    return fallback;
+  }
+}
+
+function setGatewayFailoverRuleJsonField(field: keyof GatewayFailoverRule["match"], value: string) {
+  const rule = selectedGatewayFailoverRule.value;
+  if (!rule) return;
+  const parsed = parseJsonArray(value, (rule.match[field] as unknown[]) || []);
+  if (parsed) {
+    (rule.match[field] as unknown) = parsed;
+    refreshGatewayFailoverPolicyJson();
+  }
+}
+
+function setGatewayFailoverTransportPersistent(value: string) {
+  const rule = selectedGatewayFailoverRule.value;
+  if (!rule) return;
+  if (value === "") {
+    delete rule.match.transport_persistent;
+    return;
+  }
+  rule.match.transport_persistent = value === "true";
+}
 
 // Gateway Content Blocker 状态
 const gatewayContentBlockerLoading = ref(true);
@@ -9844,7 +10274,7 @@ async function loadGatewayFailoverPolicySettings() {
   gatewayFailoverPolicyLoading.value = true;
   try {
     const settings = await adminAPI.settings.getGatewayFailoverPolicySettings();
-    Object.assign(gatewayFailoverPolicyForm, settings);
+    applyGatewayFailoverPolicySettings(settings);
   } catch (_error: unknown) {
     // Silent fail - settings will use defaults
   } finally {
@@ -9855,29 +10285,13 @@ async function loadGatewayFailoverPolicySettings() {
 async function saveGatewayFailoverPolicySettings() {
   gatewayFailoverPolicySaving.value = true;
   try {
-    const updated = await adminAPI.settings.updateGatewayFailoverPolicySettings({
-      structured_400_enabled:
-        gatewayFailoverPolicyForm.structured_400_enabled,
-      structured_400_cooldown_minutes:
-        gatewayFailoverPolicyForm.structured_400_cooldown_minutes,
-      failure_cooldown_jitter_percent:
-        gatewayFailoverPolicyForm.failure_cooldown_jitter_percent,
-      http_5xx_cooldown_enabled:
-        gatewayFailoverPolicyForm.http_5xx_cooldown_enabled,
-      http_5xx_threshold: gatewayFailoverPolicyForm.http_5xx_threshold,
-      http_5xx_window_seconds:
-        gatewayFailoverPolicyForm.http_5xx_window_seconds,
-      http_5xx_cooldown_seconds:
-        gatewayFailoverPolicyForm.http_5xx_cooldown_seconds,
-      transport_cooldown_enabled:
-        gatewayFailoverPolicyForm.transport_cooldown_enabled,
-      transport_threshold: gatewayFailoverPolicyForm.transport_threshold,
-      transport_window_seconds:
-        gatewayFailoverPolicyForm.transport_window_seconds,
-      transport_cooldown_seconds:
-        gatewayFailoverPolicyForm.transport_cooldown_seconds,
-    });
-    Object.assign(gatewayFailoverPolicyForm, updated);
+    if (gatewayFailoverPolicyJsonMode.value && !parseGatewayFailoverPolicyJsonText()) {
+      return;
+    }
+    const updated = await adminAPI.settings.updateGatewayFailoverPolicySettings(
+      cloneGatewayFailoverPolicySettings(),
+    );
+    applyGatewayFailoverPolicySettings(updated);
     appStore.showSuccess(t("admin.settings.gatewayFailoverPolicy.saved"));
   } catch (error: unknown) {
     appStore.showError(

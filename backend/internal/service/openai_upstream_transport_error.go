@@ -132,16 +132,22 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 		return err
 	}
 
-	if classifyOpenAITransportError(err).Persistent {
+	classification := classifyOpenAITransportError(err)
+	if classification.Persistent {
 		s.tempUnscheduleOpenAITransportError(ctx, account, safeErr)
 		if s != nil {
-			s.openaiConsecutiveFailureCounters.Delete(openAIConsecutiveFailureKey{
-				accountID: accountID,
-				category:  openAIConsecutiveFailureCategoryTransport,
-			})
+			s.clearOpenAIConsecutiveFailures(account)
 		}
 	} else {
-		s.maybeBlockOpenAITransportFailure(ctx, account, safeErr)
+		event := openAIFailoverRuleEvent{
+			Event:               GatewayFailoverRuleEventTransportError,
+			TransportError:      safeErr,
+			TransportPersistent: classification.Persistent,
+			Account:             account,
+		}
+		if decision := s.decideOpenAIFailoverRule(ctx, event); decision != nil && decision.Failover {
+			s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
+		}
 	}
 
 	return &UpstreamFailoverError{

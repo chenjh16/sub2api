@@ -2348,23 +2348,24 @@ func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool 
 	case 401, 402, 403, 429, 529:
 		return true
 	default:
-		return statusCode >= 500
+		return false
 	}
 }
 
 func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
-	if s.shouldFailoverUpstreamError(statusCode) {
-		return true
-	}
-	if s.isOpenAIStructured400FailoverEnabled(context.Background()) {
-		if isOpenAIUpstreamCooldownFailoverError(statusCode, upstreamBody) {
-			return true
-		}
-		if isOpenAIUpstreamRateLimitExceededFailoverError(statusCode, upstreamBody) {
-			return true
-		}
-	}
-	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
+	return s.shouldFailoverOpenAIUpstreamResponseWithContext(context.Background(), nil, statusCode, nil, upstreamMsg, upstreamBody)
+}
+
+func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponseWithContext(
+	ctx context.Context,
+	account *Account,
+	statusCode int,
+	headers http.Header,
+	upstreamMsg string,
+	upstreamBody []byte,
+) bool {
+	decision := s.decideOpenAIUpstreamHTTPFailover(ctx, account, statusCode, headers, upstreamMsg, upstreamBody)
+	return decision != nil && decision.Failover
 }
 
 func marshalOpenAIUpstreamJSON(v any) ([]byte, error) {
@@ -3065,7 +3066,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				}
 				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Skip non-WSv2 invalid_encrypted_content retry because encrypted reasoning items are missing (account: %s)", account.Name)
 			}
-			if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
+			if s.shouldFailoverOpenAIUpstreamResponseWithContext(ctx, account, resp.StatusCode, resp.Header, upstreamMsg, respBody) {
 				upstreamDetail := ""
 				if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 					maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes

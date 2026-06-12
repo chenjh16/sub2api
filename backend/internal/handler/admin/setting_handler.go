@@ -3211,6 +3211,8 @@ func gatewayFailoverPolicyDTO(settings *service.GatewayFailoverPolicySettings) d
 		settings = service.DefaultGatewayFailoverPolicySettings()
 	}
 	return dto.GatewayFailoverPolicySettings{
+		MatchMode:                    settings.MatchMode,
+		Rules:                        settings.Rules,
 		Structured400Enabled:         settings.Structured400Enabled,
 		Structured400CooldownMinutes: settings.Structured400CooldownMinutes,
 		FailureCooldownJitterPercent: settings.FailureCooldownJitterPercent,
@@ -3238,6 +3240,9 @@ func (h *SettingHandler) GetGatewayFailoverPolicySettings(c *gin.Context) {
 
 // UpdateGatewayFailoverPolicySettingsRequest 更新网关故障转移增强策略配置请求
 type UpdateGatewayFailoverPolicySettingsRequest struct {
+	MatchMode string                        `json:"match_mode"`
+	Rules     []service.GatewayFailoverRule `json:"rules"`
+
 	Structured400Enabled         bool `json:"structured_400_enabled"`
 	Structured400CooldownMinutes int  `json:"structured_400_cooldown_minutes"`
 	FailureCooldownJitterPercent int  `json:"failure_cooldown_jitter_percent"`
@@ -3261,6 +3266,8 @@ func (h *SettingHandler) UpdateGatewayFailoverPolicySettings(c *gin.Context) {
 	}
 
 	settings := &service.GatewayFailoverPolicySettings{
+		MatchMode:                    req.MatchMode,
+		Rules:                        req.Rules,
 		Structured400Enabled:         req.Structured400Enabled,
 		Structured400CooldownMinutes: req.Structured400CooldownMinutes,
 		FailureCooldownJitterPercent: req.FailureCooldownJitterPercent,

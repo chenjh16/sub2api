@@ -1139,7 +1139,82 @@ export async function updateRateLimit429CooldownSettings(
 
 // ==================== Gateway Failover Policy Settings ====================
 
+export type GatewayFailoverRuleEvent = "http_response" | "transport_error";
+export type GatewayFailoverRuleLogic = "all" | "any";
+export type GatewayFailoverRuleOp =
+  | "equals"
+  | "not_equals"
+  | "contains"
+  | "not_contains"
+  | "exists"
+  | "not_exists"
+  | "in"
+  | "regex";
+export type GatewayFailoverCooldownScope = "none" | "runtime" | "temp_unsched";
+
+export interface GatewayFailoverStatusRange {
+  min: number;
+  max: number;
+}
+
+export interface GatewayFailoverValueCondition {
+  op: GatewayFailoverRuleOp | string;
+  value?: string;
+  values?: string[];
+}
+
+export interface GatewayFailoverJSONCondition extends GatewayFailoverValueCondition {
+  path?: string;
+  paths?: string[];
+}
+
+export interface GatewayFailoverHeaderCondition extends GatewayFailoverValueCondition {
+  name: string;
+}
+
+export interface GatewayFailoverConsecutiveCondition {
+  enabled: boolean;
+  threshold: number;
+  window_seconds: number;
+}
+
+export interface GatewayFailoverRuleMatch {
+  status_codes?: number[];
+  status_ranges?: GatewayFailoverStatusRange[];
+  exclude_status_codes?: number[];
+  json_logic?: GatewayFailoverRuleLogic | string;
+  json_conditions?: GatewayFailoverJSONCondition[];
+  header_logic?: GatewayFailoverRuleLogic | string;
+  header_conditions?: GatewayFailoverHeaderCondition[];
+  message_conditions?: GatewayFailoverValueCondition[];
+  body_conditions?: GatewayFailoverValueCondition[];
+  transport_conditions?: GatewayFailoverValueCondition[];
+  transport_persistent?: boolean;
+  consecutive?: GatewayFailoverConsecutiveCondition;
+}
+
+export interface GatewayFailoverRuleAction {
+  failover: boolean;
+  cooldown_scope: GatewayFailoverCooldownScope | string;
+  cooldown_seconds: number;
+  jitter_percent: number;
+  reason: string;
+}
+
+export interface GatewayFailoverRule {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  priority: number;
+  event: GatewayFailoverRuleEvent | string;
+  match: GatewayFailoverRuleMatch;
+  action: GatewayFailoverRuleAction;
+}
+
 export interface GatewayFailoverPolicySettings {
+  match_mode?: string;
+  rules?: GatewayFailoverRule[];
   structured_400_enabled: boolean;
   structured_400_cooldown_minutes: number;
   failure_cooldown_jitter_percent: number;
