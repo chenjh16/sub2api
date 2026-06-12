@@ -89,11 +89,24 @@ func newOpenAIFailoverPolicyTestService(t *testing.T, settings GatewayFailoverPo
 	}
 }
 
+func updateGatewayFailoverRule(t *testing.T, settings *GatewayFailoverPolicySettings, id string, update func(*GatewayFailoverRule)) {
+	t.Helper()
+	for i := range settings.Rules {
+		if settings.Rules[i].ID == id {
+			update(&settings.Rules[i])
+			return
+		}
+	}
+	t.Fatalf("gateway failover rule %q not found", id)
+}
+
 func TestGatewayFailoverPolicySettings_DefaultsWhenNotSet(t *testing.T) {
 	svc := NewSettingService(newGatewayFailoverPolicySettingRepo(), &config.Config{})
 
 	settings, err := svc.GetGatewayFailoverPolicySettings(context.Background())
 	require.NoError(t, err)
+	require.Equal(t, "first", settings.MatchMode)
+	require.Len(t, settings.Rules, 4)
 	require.True(t, settings.Structured400Enabled)
 	require.Equal(t, 10, settings.Structured400CooldownMinutes)
 	require.Equal(t, 20, settings.FailureCooldownJitterPercent)
@@ -110,29 +123,31 @@ func TestGatewayFailoverPolicySettings_DefaultsWhenNotSet(t *testing.T) {
 func TestSetGatewayFailoverPolicySettings_RoundTrip(t *testing.T) {
 	repo := newGatewayFailoverPolicySettingRepo()
 	svc := NewSettingService(repo, &config.Config{})
-	want := &GatewayFailoverPolicySettings{
-		Structured400Enabled:         false,
-		Structured400CooldownMinutes: 15,
-		FailureCooldownJitterPercent: 0,
-		HTTP5xxCooldownEnabled:       true,
-		HTTP5xxThreshold:             2,
-		HTTP5xxWindowSeconds:         10,
-		HTTP5xxCooldownSeconds:       45,
-		TransportCooldownEnabled:     true,
-		TransportThreshold:           4,
-		TransportWindowSeconds:       20,
-		TransportCooldownSeconds:     90,
-	}
+	want := DefaultGatewayFailoverPolicySettings()
+	want.FailureCooldownJitterPercent = 0
+	updateGatewayFailoverRule(t, want, "openai_structured_400_rpm", func(rule *GatewayFailoverRule) {
+		rule.Enabled = false
+	})
+	updateGatewayFailoverRule(t, want, "openai_http_5xx_threshold", func(rule *GatewayFailoverRule) {
+		rule.Match.Consecutive.Threshold = 2
+		rule.Match.Consecutive.WindowSeconds = 10
+		rule.Action.CooldownSeconds = 45
+		rule.Action.JitterPercent = 0
+	})
 
 	require.NoError(t, svc.SetGatewayFailoverPolicySettings(context.Background(), want))
 	got, err := svc.GetGatewayFailoverPolicySettings(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, want, got)
+	normalizedWant, err := normalizeGatewayFailoverPolicySettings(want, true)
+	require.NoError(t, err)
+	require.Equal(t, normalizedWant, got)
 }
 
 func TestGatewayFailoverPolicy_DisablesStructured400Failover(t *testing.T) {
 	settings := *DefaultGatewayFailoverPolicySettings()
-	settings.Structured400Enabled = false
+	updateGatewayFailoverRule(t, &settings, "openai_structured_400_rpm", func(rule *GatewayFailoverRule) {
+		rule.Enabled = false
+	})
 	svc := newOpenAIFailoverPolicyTestService(t, settings)
 	body := []byte(`{"error":{"code":"rate_limit_exceeded"},"code":"rate_limit_exceeded","limit_type":"rpm"}`)
 
@@ -145,15 +160,17 @@ func TestGatewayFailoverPolicy_DisablesStructured400Failover(t *testing.T) {
 
 func TestGatewayFailoverPolicy_HTTP5xxThresholdBlocksAccount(t *testing.T) {
 	settings := *DefaultGatewayFailoverPolicySettings()
-	settings.FailureCooldownJitterPercent = 0
-	settings.HTTP5xxThreshold = 2
-	settings.HTTP5xxWindowSeconds = 60
-	settings.HTTP5xxCooldownSeconds = 30
+	updateGatewayFailoverRule(t, &settings, "openai_http_5xx_threshold", func(rule *GatewayFailoverRule) {
+		rule.Match.Consecutive.Threshold = 2
+		rule.Match.Consecutive.WindowSeconds = 60
+		rule.Action.CooldownSeconds = 30
+		rule.Action.JitterPercent = 0
+	})
 	svc := newOpenAIFailoverPolicyTestService(t, settings)
 	account := &Account{ID: 9002, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 	before := time.Now()
 
-	require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, []byte(`{"error":{"message":"bad gateway"}}`)))
+	require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, []byte(`{"error":{"message":"bad gateway"}}`)))
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 
 	require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, []byte(`{"error":{"message":"bad gateway"}}`)))
@@ -166,25 +183,29 @@ func TestGatewayFailoverPolicy_HTTP5xxThresholdBlocksAccount(t *testing.T) {
 
 func TestGatewayFailoverPolicy_SuccessClearsHTTP5xxCounter(t *testing.T) {
 	settings := *DefaultGatewayFailoverPolicySettings()
-	settings.FailureCooldownJitterPercent = 0
-	settings.HTTP5xxThreshold = 2
-	settings.HTTP5xxWindowSeconds = 60
+	updateGatewayFailoverRule(t, &settings, "openai_http_5xx_threshold", func(rule *GatewayFailoverRule) {
+		rule.Match.Consecutive.Threshold = 2
+		rule.Match.Consecutive.WindowSeconds = 60
+		rule.Action.JitterPercent = 0
+	})
 	svc := newOpenAIFailoverPolicyTestService(t, settings)
 	account := &Account{ID: 9003, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 
-	require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, nil))
+	require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, nil))
 	svc.clearOpenAIConsecutiveFailures(account)
-	require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, nil))
+	require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, nil))
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
 func TestGatewayFailoverPolicy_TransportThresholdBlocksAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	settings := *DefaultGatewayFailoverPolicySettings()
-	settings.FailureCooldownJitterPercent = 0
-	settings.TransportThreshold = 2
-	settings.TransportWindowSeconds = 60
-	settings.TransportCooldownSeconds = 25
+	updateGatewayFailoverRule(t, &settings, "openai_transport_threshold", func(rule *GatewayFailoverRule) {
+		rule.Match.Consecutive.Threshold = 2
+		rule.Match.Consecutive.WindowSeconds = 60
+		rule.Action.CooldownSeconds = 25
+		rule.Action.JitterPercent = 0
+	})
 	svc := newOpenAIFailoverPolicyTestService(t, settings)
 	account := &Account{ID: 9004, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 
