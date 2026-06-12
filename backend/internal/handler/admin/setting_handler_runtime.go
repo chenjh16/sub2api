@@ -154,6 +154,86 @@ func (h *SettingHandler) UpdateRateLimit429CooldownSettings(c *gin.Context) {
 	})
 }
 
+func gatewayFailoverPolicyDTO(settings *service.GatewayFailoverPolicySettings) dto.GatewayFailoverPolicySettings {
+	if settings == nil {
+		settings = service.DefaultGatewayFailoverPolicySettings()
+	}
+	return dto.GatewayFailoverPolicySettings{
+		Structured400Enabled:         settings.Structured400Enabled,
+		Structured400CooldownMinutes: settings.Structured400CooldownMinutes,
+		FailureCooldownJitterPercent: settings.FailureCooldownJitterPercent,
+		HTTP5xxCooldownEnabled:       settings.HTTP5xxCooldownEnabled,
+		HTTP5xxThreshold:             settings.HTTP5xxThreshold,
+		HTTP5xxWindowSeconds:         settings.HTTP5xxWindowSeconds,
+		HTTP5xxCooldownSeconds:       settings.HTTP5xxCooldownSeconds,
+		TransportCooldownEnabled:     settings.TransportCooldownEnabled,
+		TransportThreshold:           settings.TransportThreshold,
+		TransportWindowSeconds:       settings.TransportWindowSeconds,
+		TransportCooldownSeconds:     settings.TransportCooldownSeconds,
+	}
+}
+
+// GetGatewayFailoverPolicySettings 获取网关故障转移增强策略配置
+// GET /api/v1/admin/settings/gateway-failover-policy
+func (h *SettingHandler) GetGatewayFailoverPolicySettings(c *gin.Context) {
+	settings, err := h.settingService.GetGatewayFailoverPolicySettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gatewayFailoverPolicyDTO(settings))
+}
+
+// UpdateGatewayFailoverPolicySettingsRequest 更新网关故障转移增强策略配置请求
+type UpdateGatewayFailoverPolicySettingsRequest struct {
+	Structured400Enabled         bool `json:"structured_400_enabled"`
+	Structured400CooldownMinutes int  `json:"structured_400_cooldown_minutes"`
+	FailureCooldownJitterPercent int  `json:"failure_cooldown_jitter_percent"`
+	HTTP5xxCooldownEnabled       bool `json:"http_5xx_cooldown_enabled"`
+	HTTP5xxThreshold             int  `json:"http_5xx_threshold"`
+	HTTP5xxWindowSeconds         int  `json:"http_5xx_window_seconds"`
+	HTTP5xxCooldownSeconds       int  `json:"http_5xx_cooldown_seconds"`
+	TransportCooldownEnabled     bool `json:"transport_cooldown_enabled"`
+	TransportThreshold           int  `json:"transport_threshold"`
+	TransportWindowSeconds       int  `json:"transport_window_seconds"`
+	TransportCooldownSeconds     int  `json:"transport_cooldown_seconds"`
+}
+
+// UpdateGatewayFailoverPolicySettings 更新网关故障转移增强策略配置
+// PUT /api/v1/admin/settings/gateway-failover-policy
+func (h *SettingHandler) UpdateGatewayFailoverPolicySettings(c *gin.Context) {
+	var req UpdateGatewayFailoverPolicySettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	settings := &service.GatewayFailoverPolicySettings{
+		Structured400Enabled:         req.Structured400Enabled,
+		Structured400CooldownMinutes: req.Structured400CooldownMinutes,
+		FailureCooldownJitterPercent: req.FailureCooldownJitterPercent,
+		HTTP5xxCooldownEnabled:       req.HTTP5xxCooldownEnabled,
+		HTTP5xxThreshold:             req.HTTP5xxThreshold,
+		HTTP5xxWindowSeconds:         req.HTTP5xxWindowSeconds,
+		HTTP5xxCooldownSeconds:       req.HTTP5xxCooldownSeconds,
+		TransportCooldownEnabled:     req.TransportCooldownEnabled,
+		TransportThreshold:           req.TransportThreshold,
+		TransportWindowSeconds:       req.TransportWindowSeconds,
+		TransportCooldownSeconds:     req.TransportCooldownSeconds,
+	}
+	if err := h.settingService.SetGatewayFailoverPolicySettings(c.Request.Context(), settings); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	updatedSettings, err := h.settingService.GetGatewayFailoverPolicySettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gatewayFailoverPolicyDTO(updatedSettings))
+}
+
 // GetGatewayContentBlockerSettings 获取 200 OK 响应内容关键词拦截配置
 // GET /api/v1/admin/settings/gateway-content-blocker
 func (h *SettingHandler) GetGatewayContentBlockerSettings(c *gin.Context) {

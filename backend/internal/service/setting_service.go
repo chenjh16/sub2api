@@ -59,6 +59,8 @@ type SettingService struct {
 	openAICodexUASF             singleflight.Group
 	codexRestrictionPolicyCache atomic.Value // *cachedCodexRestrictionPolicy
 	codexRestrictionPolicySF    singleflight.Group
+	gatewayFailoverPolicyCache  atomic.Value // *cachedGatewayFailoverPolicySettings
+	gatewayFailoverPolicySF     singleflight.Group
 	gatewayContentBlockerCache  atomic.Value // *cachedGatewayContentBlockerSettings
 	gatewayContentBlockerSF     singleflight.Group
 

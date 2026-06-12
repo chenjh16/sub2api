@@ -967,6 +967,25 @@ export default {
         saved: '429 default cooldown settings saved',
         saveFailed: 'Failed to save 429 default cooldown settings'
       },
+      gatewayFailoverPolicy: {
+        title: 'Automatic Failover Policy',
+        description: 'Configure OpenAI upstream error failover and short runtime cooldowns for unstable accounts',
+        structured400: 'Structured 400 failover',
+        structured400Hint: 'Treat structured rate_limit_cooldown and rate_limit_exceeded/rpm responses as upstream failures',
+        structured400Cooldown: 'Structured 400 cooldown (minutes)',
+        structured400CooldownHint: 'Runtime cooldown after a structured 400 hit (1-720 minutes)',
+        jitterPercent: 'Cooldown jitter (%)',
+        jitterPercentHint: 'Applies to consecutive 5xx and transport short cooldowns (0-100%)',
+        http5xx: 'HTTP 5xx short cooldown',
+        http5xxHint: 'Trigger a short runtime cooldown after repeated 5xx failovers from the same account',
+        transport: 'Transport error short cooldown',
+        transportHint: 'Trigger a short runtime cooldown after repeated timeout, TLS, or network failovers',
+        threshold: 'Threshold',
+        windowSeconds: 'Window (seconds)',
+        cooldownSeconds: 'Cooldown (seconds)',
+        saved: 'Automatic failover policy saved',
+        saveFailed: 'Failed to save automatic failover policy'
+      },
       gatewayContentBlocker: {
         title: '200 Response Content Blocker',
         description: 'Detect upstream maintenance, busy, or key-rotation messages disguised as successful responses and trigger node failover',

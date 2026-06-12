@@ -96,6 +96,11 @@ type cachedOpenAIQuotaAutoPauseSettings struct {
 	expiresAt int64
 }
 
+type cachedGatewayFailoverPolicySettings struct {
+	settings  *GatewayFailoverPolicySettings
+	expiresAt int64 // unix nano
+}
+
 type cachedGatewayContentBlockerSettings struct {
 	settings  *GatewayContentBlockerSettings
 	expiresAt int64 // unix nano
@@ -127,6 +132,10 @@ const cyberSessionBlockRuntimeCacheTTL = 60 * time.Second
 const cyberSessionBlockRuntimeErrorTTL = 5 * time.Second
 const cyberSessionBlockRuntimeDBTimeout = 5 * time.Second
 
+const gatewayFailoverPolicySettingsCacheTTL = 60 * time.Second
+const gatewayFailoverPolicySettingsErrorTTL = 5 * time.Second
+const gatewayFailoverPolicySettingsDBTimeout = 5 * time.Second
+
 const gatewayContentBlockerSettingsCacheTTL = 60 * time.Second
 const gatewayContentBlockerSettingsErrorTTL = 5 * time.Second
 const gatewayContentBlockerSettingsDBTimeout = 5 * time.Second
@@ -136,6 +145,203 @@ const openAIQuotaAutoPauseSettingsErrorTTL = 5 * time.Second
 const openAIQuotaAutoPauseSettingsDBTimeout = 5 * time.Second
 
 const openAIQuotaAutoPauseSettingsRefreshKey = "openai_quota_auto_pause_settings"
+
+const (
+	gatewayFailoverPolicyMinStructured400CooldownMinutes = 1
+	gatewayFailoverPolicyMaxStructured400CooldownMinutes = 720
+	gatewayFailoverPolicyMinJitterPercent                = 0
+	gatewayFailoverPolicyMaxJitterPercent                = 100
+	gatewayFailoverPolicyMinThreshold                    = 1
+	gatewayFailoverPolicyMaxThreshold                    = 20
+	gatewayFailoverPolicyMinWindowSeconds                = 1
+	gatewayFailoverPolicyMaxWindowSeconds                = 3600
+	gatewayFailoverPolicyMinCooldownSeconds              = 1
+	gatewayFailoverPolicyMaxCooldownSeconds              = 7200
+)
+
+func cloneGatewayFailoverPolicySettings(settings *GatewayFailoverPolicySettings) *GatewayFailoverPolicySettings {
+	if settings == nil {
+		return DefaultGatewayFailoverPolicySettings()
+	}
+	cloned := *settings
+	return &cloned
+}
+
+func normalizeGatewayFailoverPolicySettings(settings *GatewayFailoverPolicySettings, strict bool) (*GatewayFailoverPolicySettings, error) {
+	if settings == nil {
+		return nil, fmt.Errorf("settings cannot be nil")
+	}
+
+	normalized := cloneGatewayFailoverPolicySettings(settings)
+	defaults := DefaultGatewayFailoverPolicySettings()
+
+	if normalized.Structured400CooldownMinutes < gatewayFailoverPolicyMinStructured400CooldownMinutes ||
+		normalized.Structured400CooldownMinutes > gatewayFailoverPolicyMaxStructured400CooldownMinutes {
+		if strict && normalized.Structured400Enabled {
+			return nil, fmt.Errorf("structured_400_cooldown_minutes must be between %d-%d",
+				gatewayFailoverPolicyMinStructured400CooldownMinutes,
+				gatewayFailoverPolicyMaxStructured400CooldownMinutes)
+		}
+		normalized.Structured400CooldownMinutes = defaults.Structured400CooldownMinutes
+	}
+	if normalized.FailureCooldownJitterPercent < gatewayFailoverPolicyMinJitterPercent ||
+		normalized.FailureCooldownJitterPercent > gatewayFailoverPolicyMaxJitterPercent {
+		if strict {
+			return nil, fmt.Errorf("failure_cooldown_jitter_percent must be between %d-%d",
+				gatewayFailoverPolicyMinJitterPercent,
+				gatewayFailoverPolicyMaxJitterPercent)
+		}
+		normalized.FailureCooldownJitterPercent = defaults.FailureCooldownJitterPercent
+	}
+
+	if normalized.HTTP5xxThreshold < gatewayFailoverPolicyMinThreshold ||
+		normalized.HTTP5xxThreshold > gatewayFailoverPolicyMaxThreshold {
+		if strict && normalized.HTTP5xxCooldownEnabled {
+			return nil, fmt.Errorf("http_5xx_threshold must be between %d-%d",
+				gatewayFailoverPolicyMinThreshold,
+				gatewayFailoverPolicyMaxThreshold)
+		}
+		normalized.HTTP5xxThreshold = defaults.HTTP5xxThreshold
+	}
+	if normalized.HTTP5xxWindowSeconds < gatewayFailoverPolicyMinWindowSeconds ||
+		normalized.HTTP5xxWindowSeconds > gatewayFailoverPolicyMaxWindowSeconds {
+		if strict && normalized.HTTP5xxCooldownEnabled {
+			return nil, fmt.Errorf("http_5xx_window_seconds must be between %d-%d",
+				gatewayFailoverPolicyMinWindowSeconds,
+				gatewayFailoverPolicyMaxWindowSeconds)
+		}
+		normalized.HTTP5xxWindowSeconds = defaults.HTTP5xxWindowSeconds
+	}
+	if normalized.HTTP5xxCooldownSeconds < gatewayFailoverPolicyMinCooldownSeconds ||
+		normalized.HTTP5xxCooldownSeconds > gatewayFailoverPolicyMaxCooldownSeconds {
+		if strict && normalized.HTTP5xxCooldownEnabled {
+			return nil, fmt.Errorf("http_5xx_cooldown_seconds must be between %d-%d",
+				gatewayFailoverPolicyMinCooldownSeconds,
+				gatewayFailoverPolicyMaxCooldownSeconds)
+		}
+		normalized.HTTP5xxCooldownSeconds = defaults.HTTP5xxCooldownSeconds
+	}
+
+	if normalized.TransportThreshold < gatewayFailoverPolicyMinThreshold ||
+		normalized.TransportThreshold > gatewayFailoverPolicyMaxThreshold {
+		if strict && normalized.TransportCooldownEnabled {
+			return nil, fmt.Errorf("transport_threshold must be between %d-%d",
+				gatewayFailoverPolicyMinThreshold,
+				gatewayFailoverPolicyMaxThreshold)
+		}
+		normalized.TransportThreshold = defaults.TransportThreshold
+	}
+	if normalized.TransportWindowSeconds < gatewayFailoverPolicyMinWindowSeconds ||
+		normalized.TransportWindowSeconds > gatewayFailoverPolicyMaxWindowSeconds {
+		if strict && normalized.TransportCooldownEnabled {
+			return nil, fmt.Errorf("transport_window_seconds must be between %d-%d",
+				gatewayFailoverPolicyMinWindowSeconds,
+				gatewayFailoverPolicyMaxWindowSeconds)
+		}
+		normalized.TransportWindowSeconds = defaults.TransportWindowSeconds
+	}
+	if normalized.TransportCooldownSeconds < gatewayFailoverPolicyMinCooldownSeconds ||
+		normalized.TransportCooldownSeconds > gatewayFailoverPolicyMaxCooldownSeconds {
+		if strict && normalized.TransportCooldownEnabled {
+			return nil, fmt.Errorf("transport_cooldown_seconds must be between %d-%d",
+				gatewayFailoverPolicyMinCooldownSeconds,
+				gatewayFailoverPolicyMaxCooldownSeconds)
+		}
+		normalized.TransportCooldownSeconds = defaults.TransportCooldownSeconds
+	}
+
+	return normalized, nil
+}
+
+// GetGatewayFailoverPolicySettings 获取网关故障转移增强策略配置。
+func (s *SettingService) GetGatewayFailoverPolicySettings(ctx context.Context) (*GatewayFailoverPolicySettings, error) {
+	if s == nil || s.settingRepo == nil {
+		return DefaultGatewayFailoverPolicySettings(), nil
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyGatewayFailoverPolicySettings)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return DefaultGatewayFailoverPolicySettings(), nil
+		}
+		return nil, fmt.Errorf("get gateway failover policy settings: %w", err)
+	}
+	if value == "" {
+		return DefaultGatewayFailoverPolicySettings(), nil
+	}
+
+	var settings GatewayFailoverPolicySettings
+	if err := json.Unmarshal([]byte(value), &settings); err != nil {
+		return DefaultGatewayFailoverPolicySettings(), nil
+	}
+	normalized, err := normalizeGatewayFailoverPolicySettings(&settings, false)
+	if err != nil {
+		return DefaultGatewayFailoverPolicySettings(), nil
+	}
+	return normalized, nil
+}
+
+// GetGatewayFailoverPolicySettingsCached 返回缓存后的网关故障转移增强策略配置。
+func (s *SettingService) GetGatewayFailoverPolicySettingsCached(ctx context.Context) *GatewayFailoverPolicySettings {
+	if s == nil || s.settingRepo == nil {
+		return DefaultGatewayFailoverPolicySettings()
+	}
+	now := time.Now()
+	if cached, ok := s.gatewayFailoverPolicyCache.Load().(*cachedGatewayFailoverPolicySettings); ok && cached != nil {
+		if now.UnixNano() < cached.expiresAt {
+			return cloneGatewayFailoverPolicySettings(cached.settings)
+		}
+	}
+
+	val, _, _ := s.gatewayFailoverPolicySF.Do("gateway_failover_policy_settings", func() (any, error) {
+		if cached, ok := s.gatewayFailoverPolicyCache.Load().(*cachedGatewayFailoverPolicySettings); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cloneGatewayFailoverPolicySettings(cached.settings), nil
+			}
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gatewayFailoverPolicySettingsDBTimeout)
+		defer cancel()
+		settings, err := s.GetGatewayFailoverPolicySettings(dbCtx)
+		ttl := gatewayFailoverPolicySettingsCacheTTL
+		if err != nil {
+			slog.Warn("failed to get gateway failover policy settings", "error", err)
+			settings = DefaultGatewayFailoverPolicySettings()
+			ttl = gatewayFailoverPolicySettingsErrorTTL
+		}
+		s.gatewayFailoverPolicyCache.Store(&cachedGatewayFailoverPolicySettings{
+			settings:  cloneGatewayFailoverPolicySettings(settings),
+			expiresAt: time.Now().Add(ttl).UnixNano(),
+		})
+		return cloneGatewayFailoverPolicySettings(settings), nil
+	})
+	if settings, ok := val.(*GatewayFailoverPolicySettings); ok && settings != nil {
+		return settings
+	}
+	return DefaultGatewayFailoverPolicySettings()
+}
+
+// SetGatewayFailoverPolicySettings 设置网关故障转移增强策略配置。
+func (s *SettingService) SetGatewayFailoverPolicySettings(ctx context.Context, settings *GatewayFailoverPolicySettings) error {
+	if s == nil || s.settingRepo == nil {
+		return fmt.Errorf("setting service is not initialized")
+	}
+	normalized, err := normalizeGatewayFailoverPolicySettings(settings, true)
+	if err != nil {
+		return err
+	}
+
+	data, err := json.Marshal(normalized)
+	if err != nil {
+		return fmt.Errorf("marshal gateway failover policy settings: %w", err)
+	}
+	if err := s.settingRepo.Set(ctx, SettingKeyGatewayFailoverPolicySettings, string(data)); err != nil {
+		return err
+	}
+	s.gatewayFailoverPolicyCache.Store(&cachedGatewayFailoverPolicySettings{
+		settings:  cloneGatewayFailoverPolicySettings(normalized),
+		expiresAt: time.Now().Add(gatewayFailoverPolicySettingsCacheTTL).UnixNano(),
+	})
+	return nil
+}
 
 const (
 	gatewayContentBlockerMinCooldownMinutes = 1

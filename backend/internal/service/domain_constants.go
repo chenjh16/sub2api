@@ -510,6 +510,8 @@ const (
 	// SettingKeyOpenAIAllowClaudeCodeCodexPlugin 已废弃：历史全局开关只作为升级迁移输入读取。
 	// 迁移后等价规则写入 SettingKeyCodexCLIOnlyWhitelist，不再参与运行时判定。
 	SettingKeyOpenAIAllowClaudeCodeCodexPlugin = "openai_allow_claude_code_codex_plugin"
+	// SettingKeyGatewayFailoverPolicySettings 网关故障转移增强策略配置。
+	SettingKeyGatewayFailoverPolicySettings = "gateway_failover_policy_settings"
 	// SettingKeyGatewayContentBlockerSettings 200 OK 响应内容关键词拦截配置（默认关闭）。
 	SettingKeyGatewayContentBlockerSettings = "gateway_content_blocker_settings"
 

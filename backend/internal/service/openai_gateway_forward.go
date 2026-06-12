@@ -906,6 +906,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			return s.handleErrorResponse(ctx, resp, c, account, body, billingModel)
 		}
+		s.clearOpenAIConsecutiveFailures(account)
 		defer func() { _ = resp.Body.Close() }()
 
 		serviceTier := extractOpenAIServiceTierFromBody(body)
