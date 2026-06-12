@@ -277,7 +277,64 @@ GET /api/v1/admin/settings/gateway-failover-policy
 PUT /api/v1/admin/settings/gateway-failover-policy
 ```
 
-默认配置：
+当前实现已从固定字段升级为管理员可编辑规则列表。旧字段仍保留用于兼容；当 DB 中没有 `rules` 时，会按旧字段自动生成默认规则。
+
+主配置结构：
+
+```json
+{
+  "match_mode": "first",
+  "rules": [
+    {
+      "id": "openai_structured_400_rpm",
+      "name": "结构化 400 RPM 限流",
+      "enabled": true,
+      "priority": 110,
+      "event": "http_response",
+      "match": {
+        "status_codes": [400],
+        "json_logic": "all",
+        "json_conditions": [
+          { "paths": ["error.code", "code"], "op": "equals", "value": "rate_limit_exceeded" },
+          { "paths": ["limit_type", "error.limit_type"], "op": "equals", "value": "rpm" }
+        ]
+      },
+      "action": {
+        "failover": true,
+        "cooldown_scope": "runtime",
+        "cooldown_seconds": 600,
+        "jitter_percent": 20,
+        "reason": "rate_limit_exceeded_rpm"
+      }
+    }
+  ]
+}
+```
+
+默认规则：
+
+| 规则 ID | 事件 | 默认优先级 | 行为 |
+| --- | --- | --- | --- |
+| `openai_structured_400_cooldown` | `http_response` | 100 | 识别 `rate_limit_cooldown` 或 `limit_type=cooldown`，自动 failover，运行时冷却 10 分钟 |
+| `openai_structured_400_rpm` | `http_response` | 110 | 识别 `rate_limit_exceeded + limit_type=rpm`，自动 failover，运行时冷却 10 分钟 |
+| `openai_http_5xx_threshold` | `http_response` | 200 | 普通 `5xx` 每次自动 failover，连续达到阈值后运行时短冷却 |
+| `openai_transport_threshold` | `transport_error` | 300 | 瞬时网络错误每次自动 failover，连续达到阈值后运行时短冷却 |
+
+规则支持：
+
+- `event`: `http_response`、`transport_error`
+- HTTP 匹配：`status_codes`、`status_ranges`、`exclude_status_codes`
+- 结构化响应匹配：`json_conditions`，路径使用 `gjson` 语法，支持 `path` 或 `paths`
+- 响应头匹配：`header_conditions`
+- 文本匹配：`message_conditions`、`body_conditions`、`transport_conditions`
+- 网络错误分类：`transport_persistent`
+- 连续失败窗口：`match.consecutive.enabled/threshold/window_seconds`
+- 动作：`action.failover`、`cooldown_scope`、`cooldown_seconds`、`jitter_percent`、`reason`
+- 条件操作符：`equals`、`not_equals`、`contains`、`not_contains`、`exists`、`not_exists`、`in`、`regex`
+
+管理页提供可视化规则编辑和整份策略 JSON 编辑。每条默认规则都作为普通条目展示，可以独立开关、复制、删除或改优先级。
+
+兼容字段默认值：
 
 | 字段 | 默认值 | 范围 | 说明 |
 | --- | --- | --- | --- |
@@ -312,8 +369,7 @@ openaiConsecutiveFailureCounters
 计数类别：
 
 ```text
-http_5xx
-transport
+rule:<rule_id>
 ```
 
 触发短冷却时调用：
@@ -325,6 +381,8 @@ BlockAccountScheduling(account, until, reason)
 原因：
 
 ```text
+rate_limit_cooldown
+rate_limit_exceeded_rpm
 http_5xx_threshold
 transport_threshold
 ```
