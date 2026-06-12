@@ -1,6 +1,6 @@
-# OpenAI 上游结构化错误 failover 说明
+# OpenAI 上游错误自动故障转移策略说明
 
-本文档说明 Sub2API 在 OpenAI 网关中如何识别部分上游返回的结构化限流、冷却错误，并自动切换到其他可用账号或节点。
+本文档说明 Sub2API 在 OpenAI 网关中如何通过管理员可配置规则识别上游错误，并自动切换到其他可用账号或节点。
 
 ## 背景
 
@@ -21,17 +21,11 @@
 
 这类错误对客户端来说不是参数错误，而是当前上游节点暂时不可用。若直接返回给下游 Agent，Agent 通常不会触发 Sub2API 账号切换，因此网关需要在服务端识别并进入 failover。
 
-## 识别规则
+## 默认识别规则
 
-识别只依赖结构化 JSON 字段，不解析也不匹配自然语言 `message`。
+默认规则只依赖结构化 JSON 字段、HTTP 状态码和网络错误类型，不解析也不匹配自然语言 `message`。
 
 ### 冷却类错误
-
-函数：
-
-```go
-isOpenAIUpstreamCooldownFailoverError(statusCode, upstreamBody)
-```
 
 命中条件：
 
@@ -44,12 +38,6 @@ isOpenAIUpstreamCooldownFailoverError(statusCode, upstreamBody)
 
 ### RPM 限流类错误
 
-函数：
-
-```go
-isOpenAIUpstreamRateLimitExceededFailoverError(statusCode, upstreamBody)
-```
-
 命中条件：
 
 - HTTP 状态码是 `400`
@@ -61,24 +49,33 @@ isOpenAIUpstreamRateLimitExceededFailoverError(statusCode, upstreamBody)
 
 ## 执行路径
 
-命中后会进入现有 OpenAI failover 流程：
+HTTP 错误响应进入以下流程：
 
-1. `shouldFailoverOpenAIUpstreamResponse` 返回 `true`。
-2. 当前响应被包装为 `UpstreamFailoverError`，不把上游 message 原样返回给客户端。
-3. `handleOpenAIAccountUpstreamError` 对当前 OpenAI 账号设置运行时暂停调度。
+1. `decideOpenAIUpstreamHTTPFailover` 先按管理员规则列表从低优先级数值到高优先级数值匹配。
+2. 命中规则且 `action.failover=true` 时，当前响应被包装为 `UpstreamFailoverError`，不会把上游 message 原样返回给客户端。
+3. `handleOpenAIAccountUpstreamError` 根据命中规则执行冷却副作用。
 4. handler 层按已有逻辑选择其他可用账号继续重试。
 
-账号运行时暂停时长由 `structured_400_cooldown_minutes` 控制，默认 10 分钟。未配置设置服务时回退到：
+未命中管理员规则时，仅以下系统级状态仍会固定触发 failover：
 
-```go
-openAIUpstreamCooldownFallback = 10 * time.Minute
+```text
+401, 402, 403, 429, 529
 ```
 
-运行时暂停原因：
+HTTP `5xx` 不再由硬编码状态码兜底，而是由默认规则 `openai_http_5xx_threshold` 控制。管理员关闭该规则后，普通 `5xx` 不会再被自动切到其他账号，除非另有自定义规则命中。
+
+网络/传输错误进入 `handleOpenAIUpstreamTransportError`：
+
+- 明确持久错误仍会写入账号 `TempUnschedulableUntil`，并触发 failover。
+- 瞬时错误仍触发 failover；默认规则 `openai_transport_threshold` 负责连续失败短冷却。
+
+默认运行时暂停原因：
 
 ```text
 rate_limit_cooldown
 rate_limit_exceeded_rpm
+http_5xx_threshold
+transport_threshold
 ```
 
 ## 自动故障转移策略配置
@@ -102,10 +99,36 @@ GET /api/v1/admin/settings/gateway-failover-policy
 PUT /api/v1/admin/settings/gateway-failover-policy
 ```
 
-默认配置：
+当前主配置格式：
 
 ```json
 {
+  "match_mode": "first",
+  "rules": [
+    {
+      "id": "openai_structured_400_cooldown",
+      "name": "结构化 400 冷却",
+      "enabled": true,
+      "priority": 100,
+      "event": "http_response",
+      "match": {
+        "status_codes": [400],
+        "json_logic": "any",
+        "json_conditions": [
+          { "path": "error.code", "op": "equals", "value": "rate_limit_cooldown" },
+          { "path": "code", "op": "equals", "value": "rate_limit_cooldown" },
+          { "path": "limit_type", "op": "equals", "value": "cooldown" }
+        ]
+      },
+      "action": {
+        "failover": true,
+        "cooldown_scope": "runtime",
+        "cooldown_seconds": 600,
+        "jitter_percent": 20,
+        "reason": "rate_limit_cooldown"
+      }
+    }
+  ],
   "structured_400_enabled": true,
   "structured_400_cooldown_minutes": 10,
   "failure_cooldown_jitter_percent": 20,
@@ -120,30 +143,60 @@ PUT /api/v1/admin/settings/gateway-failover-policy
 }
 ```
 
-字段说明：
+`structured_400_*`、`http_5xx_*`、`transport_*` 等旧字段仍保留在 JSON 中，用于兼容旧 DB 和旧客户端。若数据库中没有 `rules`，Sub2API 会自动用这些旧字段生成默认规则；新管理页保存后会写入 `rules`。
 
-| 字段 | 默认值 | 范围 | 说明 |
+默认规则：
+
+| 规则 ID | 事件 | 默认优先级 | 行为 |
 | --- | --- | --- | --- |
-| `structured_400_enabled` | `true` | true/false | 是否启用结构化 `400` 限流/冷却 failover |
-| `structured_400_cooldown_minutes` | `10` | 1-720 | 结构化 `400` 命中后当前账号运行时冷却时长 |
-| `failure_cooldown_jitter_percent` | `20` | 0-100 | 连续失败短冷却的随机抖动比例 |
-| `http_5xx_cooldown_enabled` | `true` | true/false | 是否对连续 HTTP 5xx 失败启用短冷却 |
-| `http_5xx_threshold` | `3` | 1-20 | 窗口内多少次 5xx 后触发短冷却 |
-| `http_5xx_window_seconds` | `30` | 1-3600 | 5xx 连续失败统计窗口 |
-| `http_5xx_cooldown_seconds` | `120` | 1-7200 | 5xx 达阈值后的运行时冷却时长 |
-| `transport_cooldown_enabled` | `true` | true/false | 是否对连续瞬时网络/传输失败启用短冷却 |
-| `transport_threshold` | `3` | 1-20 | 窗口内多少次瞬时网络/传输失败后触发短冷却 |
-| `transport_window_seconds` | `30` | 1-3600 | 瞬时网络/传输失败统计窗口 |
-| `transport_cooldown_seconds` | `120` | 1-7200 | 瞬时网络/传输失败达阈值后的运行时冷却时长 |
+| `openai_structured_400_cooldown` | `http_response` | 100 | 识别 `rate_limit_cooldown` 或 `limit_type=cooldown`，failover，并运行时冷却 10 分钟 |
+| `openai_structured_400_rpm` | `http_response` | 110 | 识别 `rate_limit_exceeded + limit_type=rpm`，failover，并运行时冷却 10 分钟 |
+| `openai_http_5xx_threshold` | `http_response` | 200 | `500-599` 除 `529` 外每次 failover；同账号 30 秒内连续 3 次后运行时冷却约 120 秒 |
+| `openai_transport_threshold` | `transport_error` | 300 | 瞬时网络错误每次 failover；同账号 30 秒内连续 3 次后运行时冷却约 120 秒 |
+
+规则字段说明：
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` | 规则唯一标识，保存时会规范化为小写字母、数字和下划线 |
+| `enabled` | 单条规则独立开关 |
+| `priority` | 数值越小越先匹配；当前 `match_mode` 支持 `first` |
+| `event` | `http_response` 或 `transport_error` |
+| `match.status_codes` | 精确 HTTP 状态码 |
+| `match.status_ranges` | HTTP 状态码范围，例如 `{ "min": 500, "max": 599 }` |
+| `match.exclude_status_codes` | 从命中结果中排除的状态码 |
+| `match.json_logic` / `match.header_logic` | 条件组合方式：`all` 或 `any` |
+| `match.json_conditions` | 基于 `gjson` 路径匹配响应 JSON；支持 `path` 或 `paths` |
+| `match.header_conditions` | 匹配响应头 |
+| `match.message_conditions` | 匹配提取出的上游错误 message |
+| `match.body_conditions` | 匹配原始响应体文本 |
+| `match.transport_conditions` | 匹配网络错误文本 |
+| `match.transport_persistent` | `true` 只匹配持久网络错误，`false` 只匹配瞬时网络错误，缺省表示任意 |
+| `match.consecutive` | 连续失败窗口，命中规则每次都可以 failover，达到阈值后才执行冷却 |
+| `action.failover` | 命中后是否把本次响应转换为 `UpstreamFailoverError` |
+| `action.cooldown_scope` | `none`、`runtime` 或 `temp_unsched` |
+| `action.cooldown_seconds` | 冷却时长，`runtime/temp_unsched` 时有效 |
+| `action.jitter_percent` | 冷却随机抖动比例 |
+| `action.reason` | 写入运行时冷却日志和调度阻断的原因 |
+
+条件操作符：
+
+```text
+equals, not_equals, contains, not_contains, exists, not_exists, in, regex
+```
 
 配置保存到 DB 后会通过 `SettingService` 60 秒进程缓存被网关热路径读取，无需重启服务。
 
+## 管理页编辑
+
+管理页提供两种编辑方式：
+
+- 可视化编辑：适合调整默认规则开关、优先级、状态码、连续窗口和冷却动作。
+- JSON 编辑：适合批量编辑复杂 `json_conditions`、`header_conditions`、`message_conditions`、`body_conditions` 或自定义正则规则。
+
+每条默认规则都作为普通规则条目展示，可以独立开关、复制后修改，也可以删除。建议保留默认规则作为基线，新增自定义规则时使用更小的 `priority` 提前拦截更具体的错误。
+
 ## 连续失败短冷却
-
-除结构化 `400` 外，本分支还对 OpenAI 上游 failover 增加了两类短冷却保护：
-
-1. HTTP `5xx`：单次 `5xx` 仍然立即触发账号 failover；同一账号在统计窗口内连续达到阈值后，运行时暂停调度一小段时间。
-2. 瞬时网络/传输错误：超时、TLS、连接抖动等没有 HTTP 响应的错误会先触发 failover；同一账号连续达到阈值后，运行时短冷却。
 
 短冷却只写入进程内运行时调度阻断，不修改账号 DB 状态。这样可以快速绕开抖动账号，同时避免把短暂上游波动固化为持久配置。
 
