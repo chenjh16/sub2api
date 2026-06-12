@@ -292,6 +292,7 @@ type CreateGroupInput struct {
 	ForceOpenAIFast             bool
 	FreeOpenAIFast              bool
 	DefaultMappedModel          string
+	OpenAIDefaultServiceTier    string
 	RequireOAuthOnly            bool
 	RequirePrivacySet           bool
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
@@ -375,6 +376,7 @@ type UpdateGroupInput struct {
 	ForceOpenAIFast             *bool
 	FreeOpenAIFast              *bool
 	DefaultMappedModel          *string
+	OpenAIDefaultServiceTier    *string
 	RequireOAuthOnly            *bool
 	RequirePrivacySet           *bool
 	MessagesDispatchModelConfig *OpenAIMessagesDispatchModelConfig
