@@ -69,7 +69,11 @@ func TestOpenAIUpstreamRateLimitExceededRPM_ShouldFailover(t *testing.T) {
 }
 
 func TestOpenAIUpstreamRateLimitExceededRPM_RuntimeBlocksForTenMinutes(t *testing.T) {
-	svc := &OpenAIGatewayService{}
+	settings := *DefaultGatewayFailoverPolicySettings()
+	updateGatewayFailoverRule(t, &settings, "openai_structured_400_rpm", func(rule *GatewayFailoverRule) {
+		rule.Action.JitterPercent = 0
+	})
+	svc := newOpenAIFailoverPolicyTestService(t, settings)
 	account := &Account{ID: 4403, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 	start := time.Now()
 
