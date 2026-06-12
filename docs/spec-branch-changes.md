@@ -3,21 +3,19 @@
 本文档说明当前 `spec` 分支相对 `main` 主线的功能性修改。记录时点为 2026-06-12，本地功能对比范围如下；本文档提交本身仅用于说明，不计入功能差异：
 
 - 基线：`main` / `e34ad2b1`
-- 功能分支：`spec` / `4abd1c09`
-- 对比提交：
-  - `c96db837 feat(openai): add group default service tier`
-  - `320f6269 feat(openai): failover rate limit cooldown errors`
-  - `4abd1c09 feat(gateway): add 200 response content blocker`
+- 功能分支：`spec` / 当前 HEAD
+- 对比范围：分组默认 `service_tier`、OpenAI 上游结构化错误 failover、自动故障转移策略、200 响应内容拦截，以及对应文档与测试。
 
 ## 总览
 
-`spec` 分支围绕 OpenAI 网关稳定性和 Codex Team 使用体验做了三类增强：
+`spec` 分支围绕 OpenAI 网关稳定性和 Codex Team 使用体验做了四类增强：
 
 1. 为 OpenAI 分组增加默认 `service_tier`，支持在分组级别自动给请求注入 `priority`、`flex` 等服务层级。
-2. 识别上游结构化 `rate_limit_cooldown` 错误，避免把此类错误原样返回给客户端，改为触发账号 failover 并临时暂停该账号调度。
-3. 在管理后台“网关服务”增加 200 响应内容关键词拦截，用于处理上游把维护、繁忙、换 Key 等文案伪装成成功响应的情况。
+2. 识别上游结构化限流/冷却错误，避免把此类错误原样返回给客户端，改为触发账号 failover 并临时暂停该账号调度。
+3. 在管理后台“网关服务”增加自动故障转移策略，支持配置结构化 `400`、连续 `5xx`、连续网络错误的短冷却。
+4. 在管理后台“网关服务”增加 200 响应内容关键词拦截，用于处理上游把维护、繁忙、换 Key 等文案伪装成成功响应的情况。
 
-这三项修改均优先遵循已有网关调度和 failover 机制，不新增独立调度器。
+这四项修改均优先遵循已有网关调度和 failover 机制，不新增独立调度器。
 
 ## 1. OpenAI 分组默认 service_tier
 
@@ -137,11 +135,11 @@ WHERE name = 'Codex Team'
 docs/openai-default-service-tier.md
 ```
 
-## 2. rate_limit_cooldown 错误自动 failover
+## 2. 结构化限流/冷却错误自动 failover
 
 ### 背景
 
-部分上游会返回结构化错误，例如：
+部分上游会返回结构化错误，例如冷却类错误：
 
 ```json
 {
@@ -154,7 +152,20 @@ docs/openai-default-service-tier.md
 }
 ```
 
-这类响应虽然可能是 HTTP 400，但实际语义是上游账号或上游公益 Key 正在冷却。如果原样转发给 Agent 客户端，客户端无法自动切换其他账号，体验会变成显式失败。
+也可能返回 RPM 限流类错误：
+
+```json
+{
+  "error": {
+    "type": "invalid_request_error",
+    "code": "rate_limit_exceeded"
+  },
+  "code": "rate_limit_exceeded",
+  "limit_type": "rpm"
+}
+```
+
+这类响应虽然可能是 HTTP 400，但实际语义是上游账号、上游公益 Key 或上游节点临时不可用。如果原样转发给 Agent 客户端，客户端无法自动切换其他账号，体验会变成显式失败。
 
 ### 识别策略
 
@@ -162,16 +173,24 @@ docs/openai-default-service-tier.md
 
 ```go
 isOpenAIUpstreamCooldownFailoverError(statusCode, upstreamBody)
+isOpenAIUpstreamRateLimitExceededFailoverError(statusCode, upstreamBody)
 ```
 
-识别条件：
+共同前置条件：
 
 - HTTP 状态码为 `400 Bad Request`
 - 响应体是合法 JSON
-- 满足任一字段：
-  - `error.code == "rate_limit_cooldown"`
-  - 顶层 `code == "rate_limit_cooldown"`
-  - 顶层 `limit_type == "cooldown"`
+
+冷却类命中条件满足任一字段：
+
+- `error.code == "rate_limit_cooldown"`
+- 顶层 `code == "rate_limit_cooldown"`
+- 顶层 `limit_type == "cooldown"`
+
+RPM 限流类命中条件必须同时满足：
+
+- `error.code == "rate_limit_exceeded"` 或顶层 `code == "rate_limit_exceeded"`
+- 顶层 `limit_type == "rpm"` 或 `error.limit_type == "rpm"`
 
 该策略只识别结构化字段，不依赖中文或英文 message 文案。
 
@@ -189,16 +208,18 @@ isOpenAIUpstreamCooldownFailoverError(statusCode, upstreamBody)
 
 ```text
 rate_limit_cooldown
+rate_limit_exceeded_rpm
 ```
 
 ### 影响范围
 
-主要作用于 OpenAI 网关 HTTP 错误响应处理路径，包括 Responses 和 Chat Completions 相关转发路径中复用的 `shouldFailoverOpenAIUpstreamResponse`。
+主要作用于 OpenAI 网关 HTTP 错误响应处理路径，包括 Responses、Chat Completions、Messages、Embeddings、Images 等复用 `shouldFailoverOpenAIUpstreamResponse` 或 `handleOpenAIAccountUpstreamError` 的转发路径。
 
 ### 兼容性
 
-- 只改变结构化 `rate_limit_cooldown` 的处理方式。
+- 只改变结构化 `rate_limit_cooldown`、`rate_limit_exceeded + limit_type=rpm` 的处理方式。
 - 不会根据 message 中的“十分钟”等自然语言进行硬编码判断。
+- 只有 `rate_limit_exceeded` 但没有 `limit_type=rpm` 的 HTTP 400 响应仍走原有错误处理规则。
 - 如果上游返回其他 400 错误，仍走原有错误处理规则。
 
 ### 测试覆盖
@@ -206,6 +227,7 @@ rate_limit_cooldown
 新增和更新测试覆盖：
 
 - 结构化 `rate_limit_cooldown` 被识别为 failover。
+- 结构化 `rate_limit_exceeded + limit_type=rpm` 被识别为 failover。
 - 命中后账号运行时调度暂停约 10 分钟。
 - Codex CLI only 相关路径不会因为该逻辑产生回归。
 
@@ -213,8 +235,126 @@ rate_limit_cooldown
 
 - `backend/internal/service/openai_account_runtime_block_fastpath_test.go`
 - `backend/internal/service/openai_gateway_service_codex_cli_only_test.go`
+- `backend/internal/service/openai_upstream_rate_limit_failover_test.go`
 
-## 3. 200 响应内容关键词拦截
+专项文档见：
+
+```text
+docs/openai-upstream-error-failover.md
+```
+
+## 3. 自动故障转移策略
+
+### 背景
+
+原有网关已经支持 `UpstreamFailoverError`：当 service 层返回该错误且下游尚未收到响应内容时，handler 层会选择其他可用账号继续重试。因此“一个通道失败自动冷却并切到下一个”的核心能力已经存在。
+
+本分支在该机制上补齐了更细的 OpenAI 策略：
+
+- 结构化 `400` 限流/冷却错误默认进入 failover，并对当前账号运行时冷却。
+- HTTP `5xx` 单次仍立即 failover；同一账号连续达到阈值后，运行时短冷却。
+- 瞬时网络/传输错误默认返回 `UpstreamFailoverError`；同一账号连续达到阈值后，运行时短冷却。
+- 明确持久的代理认证、DNS、连接拒绝等错误仍沿用已有 DB 临时禁用逻辑。
+
+### 配置入口
+
+管理后台路径：
+
+```text
+设置 -> 网关服务 -> 自动故障转移策略
+```
+
+系统设置键：
+
+```text
+gateway_failover_policy_settings
+```
+
+Admin API：
+
+```http
+GET /api/v1/admin/settings/gateway-failover-policy
+PUT /api/v1/admin/settings/gateway-failover-policy
+```
+
+默认配置：
+
+| 字段 | 默认值 | 范围 | 说明 |
+| --- | --- | --- | --- |
+| `structured_400_enabled` | `true` | true/false | 是否启用结构化 `400` 限流/冷却 failover |
+| `structured_400_cooldown_minutes` | `10` | 1-720 | 结构化 `400` 命中后当前账号运行时冷却时长 |
+| `failure_cooldown_jitter_percent` | `20` | 0-100 | 连续失败短冷却的随机抖动比例 |
+| `http_5xx_cooldown_enabled` | `true` | true/false | 是否对连续 HTTP `5xx` 启用短冷却 |
+| `http_5xx_threshold` | `3` | 1-20 | 窗口内多少次 `5xx` 后触发短冷却 |
+| `http_5xx_window_seconds` | `30` | 1-3600 | `5xx` 连续失败统计窗口 |
+| `http_5xx_cooldown_seconds` | `120` | 1-7200 | `5xx` 达阈值后的运行时冷却时长 |
+| `transport_cooldown_enabled` | `true` | true/false | 是否对连续瞬时网络/传输失败启用短冷却 |
+| `transport_threshold` | `3` | 1-20 | 窗口内多少次瞬时网络/传输失败后触发短冷却 |
+| `transport_window_seconds` | `30` | 1-3600 | 瞬时网络/传输失败统计窗口 |
+| `transport_cooldown_seconds` | `120` | 1-7200 | 瞬时网络/传输失败达阈值后的运行时冷却时长 |
+
+### 实现细节
+
+新增设置模型：
+
+- `GatewayFailoverPolicySettings`
+- `DefaultGatewayFailoverPolicySettings`
+- `GetGatewayFailoverPolicySettings`
+- `GetGatewayFailoverPolicySettingsCached`
+- `SetGatewayFailoverPolicySettings`
+
+OpenAI service 新增进程内连续失败计数器：
+
+```text
+openaiConsecutiveFailureCounters
+```
+
+计数类别：
+
+```text
+http_5xx
+transport
+```
+
+触发短冷却时调用：
+
+```go
+BlockAccountScheduling(account, until, reason)
+```
+
+原因：
+
+```text
+http_5xx_threshold
+transport_threshold
+```
+
+成功收到非错误 HTTP 响应后，网关会清除该账号的连续失败计数，避免把非连续故障累计成冷却。
+
+### 接入范围
+
+新增策略接入了 OpenAI 主要 HTTP 转发路径：
+
+- `/v1/responses`
+- `/v1/chat/completions`
+- 兼容 `/v1/messages`
+- Responses 转 Chat Completions fallback
+- Embeddings
+- Images
+- Images Responses
+- passthrough 转发路径
+
+原先部分兼容端点在 transport 错误时会直接写 `502`，本分支改为返回 `UpstreamFailoverError`，交给 handler 层统一切换账号。
+
+### 边界
+
+- 不把所有 `400` 都当作 failover；只处理结构化限流/冷却字段。
+- 不根据自然语言 `message` 猜测冷却时间。
+- 连续失败短冷却是进程内状态，多实例部署时各实例独立统计。
+- 已经向下游写出流式内容后，不能无痕切换账号。
+- `429`、`529`、鉴权错误、模型不存在等仍沿用既有持久状态处理。
+
+## 4. 200 响应内容关键词拦截
 
 ### 背景
 
@@ -391,12 +531,13 @@ backend/internal/service/openai_response_content_blocker_test.go
 - 流式分片文本跨 chunk 命中。
 - 关闭状态不会命中。
 
-## 4. 前端与后台设置变更
+## 5. 前端与后台设置变更
 
-本分支前端修改集中在两处：
+本分支前端修改集中在三处：
 
 1. 分组管理页新增 OpenAI 默认 `service_tier` 下拉框。
-2. 设置页“网关服务”新增 200 响应内容拦截卡片。
+2. 设置页“网关服务”新增自动故障转移策略卡片。
+3. 设置页“网关服务”新增 200 响应内容拦截卡片。
 
 相关文件：
 
@@ -411,11 +552,11 @@ UI 风格沿用现有后台：
 
 - 使用既有 card 容器。
 - 使用 `Toggle` 作为开关。
-- 使用数字输入管理冷却和扫描上限。
+- 使用数字输入管理阈值、窗口、冷却和扫描上限。
 - 使用 textarea 管理每行一个关键词。
 - 保存失败使用既有 `extractApiErrorMessage` 提示。
 
-## 5. 运维与验证
+## 6. 运维与验证
 
 ### 本地验证命令
 
@@ -423,7 +564,7 @@ UI 风格沿用现有后台：
 
 ```bash
 cd backend
-go test ./internal/service ./internal/handler/admin
+go test ./internal/service ./internal/handler/admin ./internal/server/routes
 ```
 
 前端类型检查：
@@ -471,7 +612,7 @@ curl -fsS http://127.0.0.1:18080/health
 3. 200 响应内容拦截默认关闭，部署后需要管理员在后台显式开启并配置关键词。
 4. 对已有分组没有默认行为变化，除非管理员配置 `openai_default_service_tier`。
 
-## 6. 回滚与降级
+## 7. 回滚与降级
 
 如需临时关闭这些能力：
 
@@ -495,19 +636,26 @@ WHERE platform = 'openai';
 
 关闭开关即可。
 
-### rate_limit_cooldown failover
+### 结构化限流/冷却 failover 与自动故障转移策略
 
-该能力没有独立后台开关。若确需恢复旧行为，需要回滚 `320f6269` 对 `isOpenAIUpstreamCooldownFailoverError` 和账号运行时冷却的相关修改。
+后台进入：
 
-## 7. 风险与边界
+```text
+设置 -> 网关服务 -> 自动故障转移策略
+```
+
+可关闭 `structured_400_enabled`、`http_5xx_cooldown_enabled`、`transport_cooldown_enabled`。若确需彻底恢复旧行为，需要回滚 `isOpenAIUpstreamCooldownFailoverError`、`isOpenAIUpstreamRateLimitExceededFailoverError`、连续失败计数器和 transport error failover 的相关修改。
+
+## 8. 风险与边界
 
 - 200 内容拦截依赖管理员配置关键词。关键词过短可能误伤正常模型输出。
 - 内容拦截只扫描前 `max_scan_bytes` 字节，极晚出现的维护文本可能不会被拦截。
 - 流式响应一旦已经向下游写出内容，就无法保证无痕切换账号。
-- `rate_limit_cooldown` 识别只针对结构化 JSON 字段，不根据自然语言 message 猜测。
+- 结构化限流/冷却识别只针对 JSON 字段，不根据自然语言 message 猜测。
+- 连续失败短冷却是进程内状态，多实例部署时各实例独立统计。
 - 分组默认 `service_tier` 只对 OpenAI 平台分组生效。
 
-## 8. 主要变更文件索引
+## 9. 主要变更文件索引
 
 数据库与模型：
 
@@ -524,6 +672,8 @@ OpenAI 网关：
 - `backend/internal/service/openai_ws_forwarder.go`
 - `backend/internal/service/openai_ws_v2_passthrough_adapter.go`
 - `backend/internal/service/openai_account_runtime_block_fastpath.go`
+- `backend/internal/service/openai_gateway_failover_policy.go`
+- `backend/internal/service/openai_upstream_transport_error.go`
 - `backend/internal/service/openai_response_content_blocker.go`
 
 后台 API：
@@ -547,4 +697,6 @@ OpenAI 网关：
 - `backend/internal/service/openai_default_service_tier_test.go`
 - `backend/internal/service/openai_account_runtime_block_fastpath_test.go`
 - `backend/internal/service/openai_gateway_service_codex_cli_only_test.go`
+- `backend/internal/service/openai_upstream_rate_limit_failover_test.go`
+- `backend/internal/service/gateway_failover_policy_settings_test.go`
 - `backend/internal/service/openai_response_content_blocker_test.go`
