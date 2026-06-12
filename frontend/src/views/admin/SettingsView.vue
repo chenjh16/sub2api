@@ -411,6 +411,169 @@
             </div>
           </div>
 
+          <!-- Gateway Content Blocker Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.gatewayContentBlocker.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.gatewayContentBlocker.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div
+                v-if="gatewayContentBlockerLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <div class="flex items-center justify-between gap-6">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">
+                      {{ t("admin.settings.gatewayContentBlocker.enabled") }}
+                    </label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayContentBlocker.enabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="gatewayContentBlockerForm.enabled" />
+                </div>
+
+                <div
+                  v-if="gatewayContentBlockerForm.enabled"
+                  class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.gatewayContentBlocker.keywords") }}
+                    </label>
+                    <textarea
+                      v-model="gatewayContentBlockerKeywordsText"
+                      rows="5"
+                      class="input font-mono text-sm"
+                      :placeholder="
+                        t(
+                          'admin.settings.gatewayContentBlocker.keywordsPlaceholder',
+                        )
+                      "
+                    ></textarea>
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayContentBlocker.keywordsHint") }}
+                    </p>
+                  </div>
+
+                  <div class="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t(
+                            "admin.settings.gatewayContentBlocker.cooldownMinutes",
+                          )
+                        }}
+                      </label>
+                      <input
+                        v-model.number="
+                          gatewayContentBlockerForm.cooldown_minutes
+                        "
+                        type="number"
+                        min="1"
+                        max="720"
+                        class="input w-32"
+                      />
+                      <p
+                        class="mt-1.5 text-xs text-gray-500 dark:text-gray-400"
+                      >
+                        {{
+                          t(
+                            "admin.settings.gatewayContentBlocker.cooldownMinutesHint",
+                          )
+                        }}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t(
+                            "admin.settings.gatewayContentBlocker.maxScanBytes",
+                          )
+                        }}
+                      </label>
+                      <input
+                        v-model.number="gatewayContentBlockerForm.max_scan_bytes"
+                        type="number"
+                        min="1024"
+                        max="1048576"
+                        step="1024"
+                        class="input w-36"
+                      />
+                      <p
+                        class="mt-1.5 text-xs text-gray-500 dark:text-gray-400"
+                      >
+                        {{
+                          t(
+                            "admin.settings.gatewayContentBlocker.maxScanBytesHint",
+                          )
+                        }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    @click="saveGatewayContentBlockerSettings"
+                    :disabled="gatewayContentBlockerSaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="gatewayContentBlockerSaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      gatewayContentBlockerSaving
+                        ? t("common.saving")
+                        : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- Stream Timeout Settings -->
           <div class="card">
             <div
@@ -7952,6 +8115,25 @@ const rateLimit429CooldownForm = reactive({
   cooldown_seconds: 5,
 });
 
+// Gateway Content Blocker 状态
+const gatewayContentBlockerLoading = ref(true);
+const gatewayContentBlockerSaving = ref(false);
+const gatewayContentBlockerForm = reactive({
+  enabled: false,
+  keywords: [] as string[],
+  cooldown_minutes: 10,
+  max_scan_bytes: 65536,
+});
+const gatewayContentBlockerKeywordsText = computed({
+  get: () => gatewayContentBlockerForm.keywords.join("\n"),
+  set: (value: string) => {
+    gatewayContentBlockerForm.keywords = value
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  },
+});
+
 // Stream Timeout 状态
 const streamTimeoutLoading = ref(true);
 const streamTimeoutSaving = ref(false);
@@ -10651,6 +10833,42 @@ async function saveRateLimit429CooldownSettings() {
   }
 }
 
+// Gateway Content Blocker 方法
+async function loadGatewayContentBlockerSettings() {
+  gatewayContentBlockerLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getGatewayContentBlockerSettings();
+    Object.assign(gatewayContentBlockerForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    gatewayContentBlockerLoading.value = false;
+  }
+}
+
+async function saveGatewayContentBlockerSettings() {
+  gatewayContentBlockerSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateGatewayContentBlockerSettings({
+      enabled: gatewayContentBlockerForm.enabled,
+      keywords: gatewayContentBlockerForm.keywords,
+      cooldown_minutes: gatewayContentBlockerForm.cooldown_minutes,
+      max_scan_bytes: gatewayContentBlockerForm.max_scan_bytes,
+    });
+    Object.assign(gatewayContentBlockerForm, updated);
+    appStore.showSuccess(t("admin.settings.gatewayContentBlocker.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.gatewayContentBlocker.saveFailed"),
+      ),
+    );
+  } finally {
+    gatewayContentBlockerSaving.value = false;
+  }
+}
+
 // Stream Timeout 方法
 async function loadStreamTimeoutSettings() {
   streamTimeoutLoading.value = true;
@@ -11283,6 +11501,7 @@ onMounted(() => {
   loadOllamaCloudUsageSettings();
   loadOverloadCooldownSettings();
   loadRateLimit429CooldownSettings();
+  loadGatewayContentBlockerSettings();
   loadStreamTimeoutSettings();
   loadRectifierSettings();
   loadBetaPolicySettings();

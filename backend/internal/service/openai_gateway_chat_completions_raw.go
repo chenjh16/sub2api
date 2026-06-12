@@ -217,7 +217,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if clientStream {
 		result, forwardErr = s.streamRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime, len(body))
 	} else {
-		result, forwardErr = s.bufferRawChatCompletions(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		result, forwardErr = s.bufferRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	if result != nil {
 		addOpenAIUsage(&result.Usage, bridgeUsage)
@@ -266,6 +266,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
+	contentBlocker := s.newOpenAI200ContentBlockerDetector(c.Request.Context())
 
 	writeLine := func(line string) {
 		if clientDisconnected {
@@ -305,6 +306,13 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
 			trimmedPayload := strings.TrimSpace(payload)
 			if trimmedPayload != "[DONE]" {
+				if matched, keyword := contentBlocker.ObservePayload([]byte(payload)); matched {
+					failoverErr := s.newOpenAI200ContentBlockerFailoverError(c, account, requestID, keyword)
+					if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+						return nil, failoverErr
+					}
+					return nil, openAI200ContentBlockerMatchedAfterOutputError()
+				}
 				usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
 				if u := extractCCStreamUsage(payload); u != nil {
 					usage = *u
@@ -412,6 +420,7 @@ func extractCCStreamUsage(payload string) *OpenAIUsage {
 func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	c *gin.Context,
 	resp *http.Response,
+	account *Account,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -427,6 +436,9 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 			writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Failed to read upstream response")
 		}
 		return nil, fmt.Errorf("read upstream body: %w", err)
+	}
+	if failoverErr := s.checkOpenAI200ContentBlocker(c.Request.Context(), c, account, requestID, respBody); failoverErr != nil {
+		return nil, failoverErr
 	}
 
 	var usage OpenAIUsage

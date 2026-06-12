@@ -1206,6 +1206,32 @@ export async function updateRateLimit429CooldownSettings(
   return data;
 }
 
+// ==================== Gateway Content Blocker Settings ====================
+
+export interface GatewayContentBlockerSettings {
+  enabled: boolean;
+  keywords: string[];
+  cooldown_minutes: number;
+  max_scan_bytes: number;
+}
+
+export async function getGatewayContentBlockerSettings(): Promise<GatewayContentBlockerSettings> {
+  const { data } = await apiClient.get<GatewayContentBlockerSettings>(
+    "/admin/settings/gateway-content-blocker",
+  );
+  return data;
+}
+
+export async function updateGatewayContentBlockerSettings(
+  settings: GatewayContentBlockerSettings,
+): Promise<GatewayContentBlockerSettings> {
+  const { data } = await apiClient.put<GatewayContentBlockerSettings>(
+    "/admin/settings/gateway-content-blocker",
+    settings,
+  );
+  return data;
+}
+
 // ==================== Stream Timeout Settings ====================
 
 /**
@@ -1433,6 +1459,8 @@ export const settingsAPI = {
   updateOverloadCooldownSettings,
   getRateLimit429CooldownSettings,
   updateRateLimit429CooldownSettings,
+  getGatewayContentBlockerSettings,
+  updateGatewayContentBlockerSettings,
   getStreamTimeoutSettings,
   updateStreamTimeoutSettings,
   getRectifierSettings,

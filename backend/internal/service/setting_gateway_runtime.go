@@ -96,6 +96,11 @@ type cachedOpenAIQuotaAutoPauseSettings struct {
 	expiresAt int64
 }
 
+type cachedGatewayContentBlockerSettings struct {
+	settings  *GatewayContentBlockerSettings
+	expiresAt int64 // unix nano
+}
+
 const openAICodexUserAgentCacheTTL = 60 * time.Second
 const openAICodexUserAgentErrorTTL = 5 * time.Second
 const openAICodexUserAgentDBTimeout = 5 * time.Second
@@ -122,11 +127,182 @@ const cyberSessionBlockRuntimeCacheTTL = 60 * time.Second
 const cyberSessionBlockRuntimeErrorTTL = 5 * time.Second
 const cyberSessionBlockRuntimeDBTimeout = 5 * time.Second
 
+const gatewayContentBlockerSettingsCacheTTL = 60 * time.Second
+const gatewayContentBlockerSettingsErrorTTL = 5 * time.Second
+const gatewayContentBlockerSettingsDBTimeout = 5 * time.Second
+
 const openAIQuotaAutoPauseSettingsCacheTTL = 60 * time.Second
 const openAIQuotaAutoPauseSettingsErrorTTL = 5 * time.Second
 const openAIQuotaAutoPauseSettingsDBTimeout = 5 * time.Second
 
 const openAIQuotaAutoPauseSettingsRefreshKey = "openai_quota_auto_pause_settings"
+
+const (
+	gatewayContentBlockerMinCooldownMinutes = 1
+	gatewayContentBlockerMaxCooldownMinutes = 720
+	gatewayContentBlockerMinScanBytes       = 1024
+	gatewayContentBlockerMaxScanBytes       = 1024 * 1024
+	gatewayContentBlockerMaxKeywords        = 100
+	gatewayContentBlockerMaxKeywordBytes    = 512
+)
+
+func cloneGatewayContentBlockerSettings(settings *GatewayContentBlockerSettings) *GatewayContentBlockerSettings {
+	if settings == nil {
+		return DefaultGatewayContentBlockerSettings()
+	}
+	cloned := *settings
+	if settings.Keywords == nil {
+		cloned.Keywords = []string{}
+	} else {
+		cloned.Keywords = append([]string(nil), settings.Keywords...)
+	}
+	return &cloned
+}
+
+func normalizeGatewayContentBlockerSettings(settings *GatewayContentBlockerSettings, strict bool) (*GatewayContentBlockerSettings, error) {
+	if settings == nil {
+		return nil, fmt.Errorf("settings cannot be nil")
+	}
+
+	normalized := cloneGatewayContentBlockerSettings(settings)
+	if normalized.CooldownMinutes < gatewayContentBlockerMinCooldownMinutes || normalized.CooldownMinutes > gatewayContentBlockerMaxCooldownMinutes {
+		if strict && normalized.Enabled {
+			return nil, fmt.Errorf("cooldown_minutes must be between %d-%d", gatewayContentBlockerMinCooldownMinutes, gatewayContentBlockerMaxCooldownMinutes)
+		}
+		normalized.CooldownMinutes = DefaultGatewayContentBlockerSettings().CooldownMinutes
+	}
+	if normalized.MaxScanBytes < gatewayContentBlockerMinScanBytes || normalized.MaxScanBytes > gatewayContentBlockerMaxScanBytes {
+		if strict && normalized.Enabled {
+			return nil, fmt.Errorf("max_scan_bytes must be between %d-%d", gatewayContentBlockerMinScanBytes, gatewayContentBlockerMaxScanBytes)
+		}
+		normalized.MaxScanBytes = DefaultGatewayContentBlockerSettings().MaxScanBytes
+	}
+
+	keywords := make([]string, 0, len(normalized.Keywords))
+	seen := make(map[string]struct{}, len(normalized.Keywords))
+	for _, raw := range normalized.Keywords {
+		keyword := strings.TrimSpace(raw)
+		if keyword == "" {
+			continue
+		}
+		if len([]byte(keyword)) > gatewayContentBlockerMaxKeywordBytes {
+			if strict {
+				return nil, fmt.Errorf("keyword must be at most %d bytes", gatewayContentBlockerMaxKeywordBytes)
+			}
+			keyword = string([]byte(keyword)[:gatewayContentBlockerMaxKeywordBytes])
+			keyword = strings.TrimSpace(keyword)
+			if keyword == "" {
+				continue
+			}
+		}
+		dedupeKey := strings.ToLower(keyword)
+		if _, ok := seen[dedupeKey]; ok {
+			continue
+		}
+		seen[dedupeKey] = struct{}{}
+		keywords = append(keywords, keyword)
+		if len(keywords) > gatewayContentBlockerMaxKeywords {
+			if strict {
+				return nil, fmt.Errorf("keywords must contain at most %d items", gatewayContentBlockerMaxKeywords)
+			}
+			keywords = keywords[:gatewayContentBlockerMaxKeywords]
+			break
+		}
+	}
+	normalized.Keywords = keywords
+
+	return normalized, nil
+}
+
+// GetGatewayContentBlockerSettings 获取 200 OK 响应内容关键词拦截配置。
+func (s *SettingService) GetGatewayContentBlockerSettings(ctx context.Context) (*GatewayContentBlockerSettings, error) {
+	if s == nil || s.settingRepo == nil {
+		return DefaultGatewayContentBlockerSettings(), nil
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyGatewayContentBlockerSettings)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return DefaultGatewayContentBlockerSettings(), nil
+		}
+		return nil, fmt.Errorf("get gateway content blocker settings: %w", err)
+	}
+	if value == "" {
+		return DefaultGatewayContentBlockerSettings(), nil
+	}
+
+	var settings GatewayContentBlockerSettings
+	if err := json.Unmarshal([]byte(value), &settings); err != nil {
+		return DefaultGatewayContentBlockerSettings(), nil
+	}
+	normalized, err := normalizeGatewayContentBlockerSettings(&settings, false)
+	if err != nil {
+		return DefaultGatewayContentBlockerSettings(), nil
+	}
+	return normalized, nil
+}
+
+// GetGatewayContentBlockerSettingsCached 返回缓存后的 200 OK 响应内容关键词拦截配置。
+func (s *SettingService) GetGatewayContentBlockerSettingsCached(ctx context.Context) *GatewayContentBlockerSettings {
+	if s == nil || s.settingRepo == nil {
+		return DefaultGatewayContentBlockerSettings()
+	}
+	now := time.Now()
+	if cached, ok := s.gatewayContentBlockerCache.Load().(*cachedGatewayContentBlockerSettings); ok && cached != nil {
+		if now.UnixNano() < cached.expiresAt {
+			return cloneGatewayContentBlockerSettings(cached.settings)
+		}
+	}
+
+	val, _, _ := s.gatewayContentBlockerSF.Do("gateway_content_blocker_settings", func() (any, error) {
+		if cached, ok := s.gatewayContentBlockerCache.Load().(*cachedGatewayContentBlockerSettings); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cloneGatewayContentBlockerSettings(cached.settings), nil
+			}
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gatewayContentBlockerSettingsDBTimeout)
+		defer cancel()
+		settings, err := s.GetGatewayContentBlockerSettings(dbCtx)
+		ttl := gatewayContentBlockerSettingsCacheTTL
+		if err != nil {
+			slog.Warn("failed to get gateway content blocker settings", "error", err)
+			settings = DefaultGatewayContentBlockerSettings()
+			ttl = gatewayContentBlockerSettingsErrorTTL
+		}
+		s.gatewayContentBlockerCache.Store(&cachedGatewayContentBlockerSettings{
+			settings:  cloneGatewayContentBlockerSettings(settings),
+			expiresAt: time.Now().Add(ttl).UnixNano(),
+		})
+		return cloneGatewayContentBlockerSettings(settings), nil
+	})
+	if settings, ok := val.(*GatewayContentBlockerSettings); ok && settings != nil {
+		return settings
+	}
+	return DefaultGatewayContentBlockerSettings()
+}
+
+// SetGatewayContentBlockerSettings 设置 200 OK 响应内容关键词拦截配置。
+func (s *SettingService) SetGatewayContentBlockerSettings(ctx context.Context, settings *GatewayContentBlockerSettings) error {
+	if s == nil || s.settingRepo == nil {
+		return fmt.Errorf("setting service is not initialized")
+	}
+	normalized, err := normalizeGatewayContentBlockerSettings(settings, true)
+	if err != nil {
+		return err
+	}
+
+	data, err := json.Marshal(normalized)
+	if err != nil {
+		return fmt.Errorf("marshal gateway content blocker settings: %w", err)
+	}
+	if err := s.settingRepo.Set(ctx, SettingKeyGatewayContentBlockerSettings, string(data)); err != nil {
+		return err
+	}
+	s.gatewayContentBlockerCache.Store(&cachedGatewayContentBlockerSettings{
+		settings:  cloneGatewayContentBlockerSettings(normalized),
+		expiresAt: time.Now().Add(gatewayContentBlockerSettingsCacheTTL).UnixNano(),
+	})
+	return nil
+}
 
 // GetCyberSessionBlockRuntime 返回 (开关, TTL)，进程内缓存 ~60s，
 // 供网关热路径读取时避免 DB 往返。
