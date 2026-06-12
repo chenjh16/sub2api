@@ -7,82 +7,158 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
 
-const openAI200ContentBlockerFailoverMessage = "OpenAI upstream 200 response matched content blocker"
+const openAI200ContentBlockerFailoverMessage = "OpenAI upstream 200 response matched failover policy"
 
-type openAI200ContentBlockerDetector struct {
-	enabled       bool
-	keywords      []string
-	lowerKeywords []string
-	maxScanBytes  int
-	scannedBytes  int
-	buffer        strings.Builder
+type openAI200ContentRuleMatch struct {
+	decision openAIFailoverRuleDecision
+	event    openAIFailoverRuleEvent
 }
 
-func (s *OpenAIGatewayService) newOpenAI200ContentBlockerDetector(ctx context.Context) *openAI200ContentBlockerDetector {
-	if s == nil || s.settingService == nil {
+type openAI200ContentBlockerDetector struct {
+	rules            []GatewayFailoverRule
+	headers          http.Header
+	maxScanBytes     int
+	scannedTextBytes int
+	scannedBodyBytes int
+	textBuffer       strings.Builder
+	bodyBuffer       strings.Builder
+	done             bool
+}
+
+func (s *OpenAIGatewayService) newOpenAI200ContentBlockerDetector(ctx context.Context, headers http.Header) *openAI200ContentBlockerDetector {
+	if s == nil {
 		return &openAI200ContentBlockerDetector{}
 	}
-	settings := s.settingService.GetGatewayContentBlockerSettingsCached(ctx)
-	if settings == nil || !settings.Enabled || len(settings.Keywords) == 0 {
+	settings := s.openAIGatewayFailoverPolicySettings(ctx)
+	if settings == nil || len(settings.Rules) == 0 {
 		return &openAI200ContentBlockerDetector{}
 	}
-	maxScanBytes := settings.MaxScanBytes
-	if maxScanBytes <= 0 {
-		maxScanBytes = DefaultGatewayContentBlockerSettings().MaxScanBytes
-	}
-	keywords := make([]string, 0, len(settings.Keywords))
-	lowerKeywords := make([]string, 0, len(settings.Keywords))
-	for _, raw := range settings.Keywords {
-		keyword := strings.TrimSpace(raw)
-		if keyword == "" {
+
+	rules := make([]GatewayFailoverRule, 0, len(settings.Rules))
+	maxScanBytes := 0
+	for _, rule := range settings.Rules {
+		if !openAI200ContentFailoverRuleCandidate(rule) {
 			continue
 		}
-		keywords = append(keywords, keyword)
-		lowerKeywords = append(lowerKeywords, strings.ToLower(keyword))
+		rules = append(rules, rule)
+		if ruleMax := openAI200ContentRuleMaxScanBytes(rule); ruleMax > maxScanBytes {
+			maxScanBytes = ruleMax
+		}
 	}
-	if len(keywords) == 0 {
+	if len(rules) == 0 {
 		return &openAI200ContentBlockerDetector{}
 	}
 	return &openAI200ContentBlockerDetector{
-		enabled:       true,
-		keywords:      keywords,
-		lowerKeywords: lowerKeywords,
-		maxScanBytes:  maxScanBytes,
+		rules:        rules,
+		headers:      headers.Clone(),
+		maxScanBytes: maxScanBytes,
 	}
 }
 
-func (d *openAI200ContentBlockerDetector) ObservePayload(payload []byte) (bool, string) {
-	if d == nil || !d.enabled || len(d.lowerKeywords) == 0 || d.scannedBytes >= d.maxScanBytes {
-		return false, ""
+func openAI200ContentFailoverRuleCandidate(rule GatewayFailoverRule) bool {
+	if !rule.Enabled || rule.Event != GatewayFailoverRuleEventHTTPResponse {
+		return false
 	}
-	text := openAI200ContentBlockerExtractText(payload)
-	return d.observeText(text)
+	if !matchesGatewayFailoverStatus(rule.Match, http.StatusOK) {
+		return false
+	}
+	return rule.Match.JSONConditionGroup != nil ||
+		rule.Match.MessageConditionGroup != nil ||
+		rule.Match.BodyConditionGroup != nil
 }
 
-func (d *openAI200ContentBlockerDetector) observeText(text string) (bool, string) {
-	if d == nil || !d.enabled || text == "" || d.scannedBytes >= d.maxScanBytes {
-		return false, ""
+func openAI200ContentRuleMaxScanBytes(rule GatewayFailoverRule) int {
+	maxScanBytes := rule.Match.MaxScanBytes
+	if maxScanBytes <= 0 {
+		return gatewayFailoverPolicyDefaultScanBytes
 	}
-	remaining := d.maxScanBytes - d.scannedBytes
+	if maxScanBytes < gatewayFailoverPolicyMinScanBytes {
+		return gatewayFailoverPolicyMinScanBytes
+	}
+	if maxScanBytes > gatewayFailoverPolicyMaxScanBytes {
+		return gatewayFailoverPolicyMaxScanBytes
+	}
+	return maxScanBytes
+}
+
+func (d *openAI200ContentBlockerDetector) ObservePayload(payload []byte) *openAI200ContentRuleMatch {
+	if d == nil || d.done || len(d.rules) == 0 || d.maxScanBytes <= 0 {
+		return nil
+	}
+	d.observeBody(payload)
+	d.observeText(openAI200ContentBlockerExtractText(payload))
+	if d.bodyBuffer.Len() == 0 && d.textBuffer.Len() == 0 {
+		return nil
+	}
+	return d.match()
+}
+
+func (d *openAI200ContentBlockerDetector) observeBody(payload []byte) {
+	if d == nil || len(payload) == 0 || d.scannedBodyBytes >= d.maxScanBytes {
+		return
+	}
+	remaining := d.maxScanBytes - d.scannedBodyBytes
+	if len(payload) > remaining {
+		payload = payload[:remaining]
+	}
+	d.scannedBodyBytes += len(payload)
+	d.bodyBuffer.Write(payload)
+}
+
+func (d *openAI200ContentBlockerDetector) observeText(text string) {
+	if d == nil || text == "" || d.scannedTextBytes >= d.maxScanBytes {
+		return
+	}
+	remaining := d.maxScanBytes - d.scannedTextBytes
 	if len(text) > remaining {
 		text = text[:remaining]
 	}
-	d.scannedBytes += len(text)
-	d.buffer.WriteString(text)
+	d.scannedTextBytes += len(text)
+	d.textBuffer.WriteString(text)
+}
 
-	haystack := strings.ToLower(d.buffer.String())
-	for i, keyword := range d.lowerKeywords {
-		if strings.Contains(haystack, keyword) {
-			return true, d.keywords[i]
+func (d *openAI200ContentBlockerDetector) match() *openAI200ContentRuleMatch {
+	if d == nil || d.done {
+		return nil
+	}
+	text := d.textBuffer.String()
+	body := d.bodyBuffer.String()
+	for _, rule := range d.rules {
+		maxScanBytes := openAI200ContentRuleMaxScanBytes(rule)
+		event := openAIFailoverRuleEvent{
+			Event:           GatewayFailoverRuleEventHTTPResponse,
+			StatusCode:      http.StatusOK,
+			Headers:         d.headers,
+			UpstreamMessage: openAI200ContentScanPrefix(text, maxScanBytes),
+			Body:            []byte(openAI200ContentScanPrefix(body, maxScanBytes)),
+		}
+		if matchesOpenAIFailoverRule(rule, event) {
+			d.done = true
+			return &openAI200ContentRuleMatch{
+				decision: openAIFailoverRuleDecision{
+					Rule:     rule,
+					Failover: rule.Action.Failover,
+				},
+				event: event,
+			}
 		}
 	}
-	return false, ""
+	if d.scannedBodyBytes >= d.maxScanBytes && d.scannedTextBytes >= d.maxScanBytes {
+		d.done = true
+	}
+	return nil
+}
+
+func openAI200ContentScanPrefix(raw string, maxBytes int) string {
+	if maxBytes <= 0 || len(raw) <= maxBytes {
+		return raw
+	}
+	return string([]byte(raw)[:maxBytes])
 }
 
 func openAI200ContentBlockerExtractText(payload []byte) string {
@@ -186,33 +262,29 @@ func openAI200ContentBlockerAppendJSONStrings(b *strings.Builder, value any) {
 	}
 }
 
-func (s *OpenAIGatewayService) checkOpenAI200ContentBlocker(ctx context.Context, c *gin.Context, account *Account, upstreamRequestID string, payload []byte) *UpstreamFailoverError {
-	detector := s.newOpenAI200ContentBlockerDetector(ctx)
-	matched, keyword := detector.ObservePayload(payload)
-	if !matched {
+func (s *OpenAIGatewayService) checkOpenAI200ContentBlocker(ctx context.Context, c *gin.Context, account *Account, headers http.Header, upstreamRequestID string, payload []byte) *UpstreamFailoverError {
+	detector := s.newOpenAI200ContentBlockerDetector(ctx, headers)
+	match := detector.ObservePayload(payload)
+	if match == nil || !match.decision.Failover {
 		return nil
 	}
-	return s.newOpenAI200ContentBlockerFailoverError(c, account, upstreamRequestID, keyword)
+	return s.newOpenAI200ContentBlockerFailoverError(ctx, c, account, upstreamRequestID, match)
 }
 
-func (s *OpenAIGatewayService) newOpenAI200ContentBlockerFailoverError(c *gin.Context, account *Account, upstreamRequestID string, _ string) *UpstreamFailoverError {
-	cooldownMinutes := DefaultGatewayContentBlockerSettings().CooldownMinutes
-	if s != nil && s.settingService != nil {
-		if settings := s.settingService.GetGatewayContentBlockerSettingsCached(context.Background()); settings != nil && settings.CooldownMinutes > 0 {
-			cooldownMinutes = settings.CooldownMinutes
-		}
+func (s *OpenAIGatewayService) newOpenAI200ContentBlockerFailoverError(ctx context.Context, c *gin.Context, account *Account, upstreamRequestID string, match *openAI200ContentRuleMatch) *UpstreamFailoverError {
+	if match == nil || !match.decision.Failover {
+		return nil
 	}
-	if cooldownMinutes < gatewayContentBlockerMinCooldownMinutes {
-		cooldownMinutes = gatewayContentBlockerMinCooldownMinutes
-	}
-	if cooldownMinutes > gatewayContentBlockerMaxCooldownMinutes {
-		cooldownMinutes = gatewayContentBlockerMaxCooldownMinutes
-	}
-	if s != nil && account != nil {
-		s.BlockAccountScheduling(account, time.Now().Add(time.Duration(cooldownMinutes)*time.Minute), "content_blocker")
+	event := match.event
+	event.Account = account
+	if s != nil {
+		s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, match.decision.Rule)
 	}
 
 	message := openAI200ContentBlockerFailoverMessage
+	if ruleID := strings.TrimSpace(match.decision.Rule.ID); ruleID != "" {
+		message = fmt.Sprintf("%s: %s", message, ruleID)
+	}
 	if c != nil {
 		setOpsUpstreamError(c, http.StatusBadGateway, message, "")
 		event := OpsUpstreamErrorEvent{
