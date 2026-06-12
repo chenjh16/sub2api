@@ -466,6 +466,18 @@ type RateLimit429CooldownSettings struct {
 	CooldownSeconds int `json:"cooldown_seconds"`
 }
 
+// GatewayContentBlockerSettings 200 OK 响应内容关键词拦截配置
+type GatewayContentBlockerSettings struct {
+	// Enabled 是否启用 200 响应内容关键词拦截
+	Enabled bool `json:"enabled"`
+	// Keywords 命中任一关键词即认为该 200 响应需要 failover
+	Keywords []string `json:"keywords"`
+	// CooldownMinutes 命中后当前账号暂停调度时长（分钟）
+	CooldownMinutes int `json:"cooldown_minutes"`
+	// MaxScanBytes 每个响应最多扫描的字节数，避免大响应热路径成本失控
+	MaxScanBytes int `json:"max_scan_bytes"`
+}
+
 // DefaultOverloadCooldownSettings 返回默认的过载冷却配置（启用，10分钟）
 func DefaultOverloadCooldownSettings() *OverloadCooldownSettings {
 	return &OverloadCooldownSettings{
@@ -479,6 +491,16 @@ func DefaultRateLimit429CooldownSettings() *RateLimit429CooldownSettings {
 	return &RateLimit429CooldownSettings{
 		Enabled:         true,
 		CooldownSeconds: 5,
+	}
+}
+
+// DefaultGatewayContentBlockerSettings 返回默认的 200 响应内容拦截配置（关闭，10分钟冷却）
+func DefaultGatewayContentBlockerSettings() *GatewayContentBlockerSettings {
+	return &GatewayContentBlockerSettings{
+		Enabled:         false,
+		Keywords:        []string{},
+		CooldownMinutes: 10,
+		MaxScanBytes:    65536,
 	}
 }
 

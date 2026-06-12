@@ -6459,6 +6459,21 @@ export default {
         saved: '429 默认回避设置保存成功',
         saveFailed: '保存 429 默认回避设置失败'
       },
+      gatewayContentBlocker: {
+        title: '200 响应内容拦截',
+        description: '通过关键词识别伪装成成功响应的上游维护、繁忙或换 Key 文案，并触发节点切换',
+        enabled: '启用内容拦截',
+        enabledHint: '仅扫描 OpenAI 网关的 200 OK 成功响应；命中后不会把原始内容转发给客户端',
+        keywords: '关键词',
+        keywordsPlaceholder: '当前繁忙，休息十分钟\n公益服务器压力很大\napi.ranmeng.icu 提示：站点维护中',
+        keywordsHint: '每行一个关键词，命中任意一行即拦截；建议填写稳定片段，避免过短词造成误判',
+        cooldownMinutes: '命中冷却（分钟）',
+        cooldownMinutesHint: '命中后当前账号暂停调度的时长（1-720 分钟），默认 10 分钟',
+        maxScanBytes: '最大扫描字节',
+        maxScanBytesHint: '每个响应最多扫描的前缀字节数（1024-1048576），默认 65536',
+        saved: '200 响应内容拦截设置保存成功',
+        saveFailed: '保存 200 响应内容拦截设置失败'
+      },
       streamTimeout: {
         title: '流超时处理',
         description: '配置上游响应超时时的账户处理策略，避免问题账户持续被选中',

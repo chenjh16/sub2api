@@ -457,6 +457,11 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	acc.SupplementResponseOutput(finalResponse)
 
 	chatResp := apicompat.ResponsesToChatCompletions(finalResponse, originalModel)
+	if payload, marshalErr := json.Marshal(chatResp); marshalErr == nil {
+		if failoverErr := s.checkOpenAI200ContentBlocker(c.Request.Context(), c, account, requestID, payload); failoverErr != nil {
+			return nil, failoverErr
+		}
+	}
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -523,6 +528,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	pendingSSE := make([]string, 0, 4)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
 	var streamFailoverErr *UpstreamFailoverError
+	contentBlocker := s.newOpenAI200ContentBlockerDetector(c.Request.Context())
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -621,6 +627,18 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				streamFailoverErr = s.newOpenAIStreamFailoverError(c, account, false, requestID, payloadBytes, message)
 				return true
 			}
+		}
+		if matched, keyword := contentBlocker.ObservePayload([]byte(payload)); matched {
+			failoverErr := s.newOpenAI200ContentBlockerFailoverError(c, account, requestID, keyword)
+			if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+				streamFailoverErr = failoverErr
+			} else {
+				streamFailoverErr = &UpstreamFailoverError{
+					StatusCode:   http.StatusBadGateway,
+					ResponseBody: failoverErr.ResponseBody,
+				}
+			}
+			return true
 		}
 
 		chunks := apicompat.ResponsesEventToChatChunks(&event, state)

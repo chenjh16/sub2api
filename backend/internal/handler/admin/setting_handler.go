@@ -3206,6 +3206,66 @@ func (h *SettingHandler) UpdateRateLimit429CooldownSettings(c *gin.Context) {
 	})
 }
 
+// GetGatewayContentBlockerSettings 获取 200 OK 响应内容关键词拦截配置
+// GET /api/v1/admin/settings/gateway-content-blocker
+func (h *SettingHandler) GetGatewayContentBlockerSettings(c *gin.Context) {
+	settings, err := h.settingService.GetGatewayContentBlockerSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, dto.GatewayContentBlockerSettings{
+		Enabled:         settings.Enabled,
+		Keywords:        settings.Keywords,
+		CooldownMinutes: settings.CooldownMinutes,
+		MaxScanBytes:    settings.MaxScanBytes,
+	})
+}
+
+// UpdateGatewayContentBlockerSettingsRequest 更新 200 OK 响应内容关键词拦截配置请求
+type UpdateGatewayContentBlockerSettingsRequest struct {
+	Enabled         bool     `json:"enabled"`
+	Keywords        []string `json:"keywords"`
+	CooldownMinutes int      `json:"cooldown_minutes"`
+	MaxScanBytes    int      `json:"max_scan_bytes"`
+}
+
+// UpdateGatewayContentBlockerSettings 更新 200 OK 响应内容关键词拦截配置
+// PUT /api/v1/admin/settings/gateway-content-blocker
+func (h *SettingHandler) UpdateGatewayContentBlockerSettings(c *gin.Context) {
+	var req UpdateGatewayContentBlockerSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	settings := &service.GatewayContentBlockerSettings{
+		Enabled:         req.Enabled,
+		Keywords:        req.Keywords,
+		CooldownMinutes: req.CooldownMinutes,
+		MaxScanBytes:    req.MaxScanBytes,
+	}
+
+	if err := h.settingService.SetGatewayContentBlockerSettings(c.Request.Context(), settings); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	updatedSettings, err := h.settingService.GetGatewayContentBlockerSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, dto.GatewayContentBlockerSettings{
+		Enabled:         updatedSettings.Enabled,
+		Keywords:        updatedSettings.Keywords,
+		CooldownMinutes: updatedSettings.CooldownMinutes,
+		MaxScanBytes:    updatedSettings.MaxScanBytes,
+	})
+}
+
 // GetStreamTimeoutSettings 获取流超时处理配置
 // GET /api/v1/admin/settings/stream-timeout
 func (h *SettingHandler) GetStreamTimeoutSettings(c *gin.Context) {

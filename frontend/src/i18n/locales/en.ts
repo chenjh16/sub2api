@@ -6304,6 +6304,21 @@ export default {
         saved: '429 default cooldown settings saved',
         saveFailed: 'Failed to save 429 default cooldown settings'
       },
+      gatewayContentBlocker: {
+        title: '200 Response Content Blocker',
+        description: 'Detect upstream maintenance, busy, or key-rotation messages disguised as successful responses and trigger node failover',
+        enabled: 'Enable Content Blocker',
+        enabledHint: 'Only scans OpenAI gateway 200 OK responses; matched upstream content is not forwarded to clients',
+        keywords: 'Keywords',
+        keywordsPlaceholder: 'Currently busy, rest ten minutes\nPublic server is under heavy load\napi.ranmeng.icu notice: site maintenance',
+        keywordsHint: 'One keyword per line. Any match blocks the response; use stable phrases to avoid false positives',
+        cooldownMinutes: 'Match Cooldown (minutes)',
+        cooldownMinutesHint: 'How long to pause the matched account after a hit (1-720 minutes), default 10 minutes',
+        maxScanBytes: 'Max Scan Bytes',
+        maxScanBytesHint: 'Maximum prefix bytes scanned per response (1024-1048576), default 65536',
+        saved: '200 response content blocker settings saved',
+        saveFailed: 'Failed to save 200 response content blocker settings'
+      },
       streamTimeout: {
         title: 'Stream Timeout Handling',
         description: 'Configure account handling strategy when upstream response times out',
