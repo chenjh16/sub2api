@@ -507,19 +507,25 @@
                   </div>
                 </div>
 
-                <div v-else class="grid gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.35fr)]">
+                <div
+                  v-else
+                  class="grid gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.35fr)]"
+                >
                   <div class="space-y-2">
-                    <button
+                    <div
                       v-for="(rule, index) in gatewayFailoverPolicyForm.rules"
                       :key="rule.id || index"
-                      type="button"
-                      class="w-full rounded-md border px-4 py-3 text-left transition"
+                      role="button"
+                      tabindex="0"
+                      class="w-full cursor-pointer rounded-md border px-4 py-3 text-left transition"
                       :class="
                         index === gatewayFailoverPolicySelectedRuleIndex
                           ? 'border-primary-300 bg-primary-50 dark:border-primary-700 dark:bg-primary-900/20'
                           : 'border-gray-200 bg-white hover:border-gray-300 dark:border-dark-700 dark:bg-dark-800 dark:hover:border-dark-600'
                       "
                       @click="gatewayFailoverPolicySelectedRuleIndex = index"
+                      @keydown.enter.prevent="gatewayFailoverPolicySelectedRuleIndex = index"
+                      @keydown.space.prevent="gatewayFailoverPolicySelectedRuleIndex = index"
                     >
                       <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
@@ -554,21 +560,21 @@
                       <div class="mt-3 flex flex-wrap gap-2" @click.stop>
                         <button
                           type="button"
-                          class="btn btn-secondary btn-xs"
+                          class="btn btn-secondary btn-sm"
                           @click="duplicateGatewayFailoverRule(index)"
                         >
                           {{ t("common.copy") }}
                         </button>
                         <button
                           type="button"
-                          class="btn btn-danger btn-xs"
+                          class="btn btn-danger btn-sm"
                           :disabled="(gatewayFailoverPolicyForm.rules?.length || 0) <= 1"
                           @click="removeGatewayFailoverRule(index)"
                         >
                           {{ t("common.delete") }}
                         </button>
                       </div>
-                    </button>
+                    </div>
                   </div>
 
                   <div
@@ -580,19 +586,28 @@
                         <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                           {{ t("admin.settings.gatewayFailoverPolicy.ruleName") }}
                         </label>
-                        <input v-model="selectedGatewayFailoverRule.name" class="input" />
+                        <input
+                          v-model="selectedGatewayFailoverRule.name"
+                          class="input h-11"
+                        />
                       </div>
                       <div>
                         <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                           {{ t("admin.settings.gatewayFailoverPolicy.ruleId") }}
                         </label>
-                        <input v-model="selectedGatewayFailoverRule.id" class="input font-mono" />
+                        <input
+                          v-model="selectedGatewayFailoverRule.id"
+                          class="input h-11 font-mono"
+                        />
                       </div>
                       <div>
                         <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                           {{ t("admin.settings.gatewayFailoverPolicy.event") }}
                         </label>
-                        <select v-model="selectedGatewayFailoverRule.event" class="input">
+                        <select
+                          v-model="selectedGatewayFailoverRule.event"
+                          class="input h-11"
+                        >
                           <option value="http_response">
                             {{ t("admin.settings.gatewayFailoverPolicy.httpEvent") }}
                           </option>
@@ -608,7 +623,7 @@
                         <input
                           v-model.number="selectedGatewayFailoverRule.priority"
                           type="number"
-                          class="input"
+                          class="input h-11"
                         />
                       </div>
                     </div>
@@ -620,7 +635,7 @@
                       <textarea
                         v-model="selectedGatewayFailoverRule.description"
                         rows="2"
-                        class="input"
+                        class="input min-h-[72px] leading-5"
                       ></textarea>
                     </div>
 
@@ -631,7 +646,7 @@
                         </label>
                         <input
                           :value="formatNumberList(selectedGatewayFailoverRule.match.status_codes)"
-                          class="input font-mono"
+                          class="input h-11 font-mono"
                           placeholder="400, 429"
                           @change="
                             selectedGatewayFailoverRule.match.status_codes = parseNumberList(inputText($event));
@@ -645,7 +660,7 @@
                         </label>
                         <input
                           :value="formatNumberList(selectedGatewayFailoverRule.match.exclude_status_codes)"
-                          class="input font-mono"
+                          class="input h-11 font-mono"
                           placeholder="529"
                           @change="
                             selectedGatewayFailoverRule.match.exclude_status_codes = parseNumberList(inputText($event));
@@ -663,7 +678,7 @@
                               ? ''
                               : String(selectedGatewayFailoverRule.match.transport_persistent)
                           "
-                          class="input"
+                          class="input h-11"
                           @change="setGatewayFailoverTransportPersistent(inputText($event))"
                         >
                           <option value="">
@@ -686,7 +701,7 @@
                       <textarea
                         :value="formatStatusRanges(selectedGatewayFailoverRule.match.status_ranges)"
                         rows="2"
-                        class="input font-mono text-xs"
+                        class="input min-h-[64px] font-mono text-xs leading-5"
                         placeholder="500-599"
                         @change="
                           selectedGatewayFailoverRule.match.status_ranges = parseStatusRanges(inputText($event));
@@ -700,7 +715,10 @@
                         <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                           {{ t("admin.settings.gatewayFailoverPolicy.jsonLogic") }}
                         </label>
-                        <select v-model="selectedGatewayFailoverRule.match.json_logic" class="input">
+                        <select
+                          v-model="selectedGatewayFailoverRule.match.json_logic"
+                          class="input h-11"
+                        >
                           <option value="all">all</option>
                           <option value="any">any</option>
                         </select>
@@ -709,7 +727,10 @@
                         <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                           {{ t("admin.settings.gatewayFailoverPolicy.headerLogic") }}
                         </label>
-                        <select v-model="selectedGatewayFailoverRule.match.header_logic" class="input">
+                        <select
+                          v-model="selectedGatewayFailoverRule.match.header_logic"
+                          class="input h-11"
+                        >
                           <option value="all">all</option>
                           <option value="any">any</option>
                         </select>
@@ -783,8 +804,8 @@
                     </div>
 
                     <div class="grid gap-4 md:grid-cols-3">
-                      <div class="flex items-center justify-between gap-4 rounded-md border border-gray-100 px-3 py-2 dark:border-dark-700">
-                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      <div class="flex min-h-[44px] items-center justify-between gap-4 rounded-md border border-gray-100 px-3 py-2 dark:border-dark-700">
+                        <span class="whitespace-nowrap text-sm font-medium text-gray-700 dark:text-gray-300">
                           {{ t("admin.settings.gatewayFailoverPolicy.consecutive") }}
                         </span>
                         <Toggle v-model="selectedGatewayFailoverRule.match.consecutive!.enabled" />
@@ -798,7 +819,7 @@
                           type="number"
                           min="1"
                           max="20"
-                          class="input"
+                          class="input h-11"
                         />
                       </div>
                       <div>
@@ -810,14 +831,14 @@
                           type="number"
                           min="1"
                           max="3600"
-                          class="input"
+                          class="input h-11"
                         />
                       </div>
                     </div>
 
-                    <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-                      <div class="flex items-center justify-between gap-4 rounded-md border border-gray-100 px-3 py-2 dark:border-dark-700">
-                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <div class="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+                      <div class="flex min-h-[44px] items-center justify-between gap-4 rounded-md border border-gray-100 px-3 py-2 dark:border-dark-700">
+                        <span class="whitespace-nowrap text-sm font-medium text-gray-700 dark:text-gray-300">
                           {{ t("admin.settings.gatewayFailoverPolicy.failover") }}
                         </span>
                         <Toggle v-model="selectedGatewayFailoverRule.action.failover" />
@@ -826,7 +847,10 @@
                         <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                           {{ t("admin.settings.gatewayFailoverPolicy.cooldownScope") }}
                         </label>
-                        <select v-model="selectedGatewayFailoverRule.action.cooldown_scope" class="input">
+                        <select
+                          v-model="selectedGatewayFailoverRule.action.cooldown_scope"
+                          class="input h-11"
+                        >
                           <option value="none">none</option>
                           <option value="runtime">runtime</option>
                           <option value="temp_unsched">temp_unsched</option>
@@ -841,7 +865,7 @@
                           type="number"
                           min="0"
                           max="7200"
-                          class="input"
+                          class="input h-11"
                         />
                       </div>
                       <div>
@@ -853,7 +877,7 @@
                           type="number"
                           min="0"
                           max="100"
-                          class="input"
+                          class="input h-11"
                         />
                       </div>
                       <div>
@@ -862,7 +886,7 @@
                         </label>
                         <input
                           v-model="selectedGatewayFailoverRule.action.reason"
-                          class="input font-mono"
+                          class="input h-11 font-mono"
                         />
                       </div>
                     </div>
