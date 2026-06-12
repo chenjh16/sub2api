@@ -43,10 +43,21 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		return false
 	}
 
-	if isOpenAIUpstreamCooldownFailoverError(statusCode, responseBody) {
+	if s.isOpenAIStructured400FailoverEnabled(ctx) && isOpenAIUpstreamCooldownFailoverError(statusCode, responseBody) {
 		if s != nil && account != nil {
-			s.BlockAccountScheduling(account, time.Now().Add(openAIUpstreamCooldownFallback), "rate_limit_cooldown")
+			s.BlockAccountScheduling(account, time.Now().Add(s.openAIStructured400CooldownDuration(ctx)), "rate_limit_cooldown")
 		}
+		return true
+	}
+
+	if s.isOpenAIStructured400FailoverEnabled(ctx) && isOpenAIUpstreamRateLimitExceededFailoverError(statusCode, responseBody) {
+		if s != nil && account != nil {
+			s.BlockAccountScheduling(account, time.Now().Add(s.openAIStructured400CooldownDuration(ctx)), "rate_limit_exceeded_rpm")
+		}
+		return true
+	}
+
+	if s.maybeBlockOpenAIHTTP5xxFailure(ctx, account, statusCode) {
 		return true
 	}
 

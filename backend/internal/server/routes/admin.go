@@ -455,6 +455,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// 429默认回避配置
 		adminSettings.GET("/rate-limit-429-cooldown", h.Admin.Setting.GetRateLimit429CooldownSettings)
 		adminSettings.PUT("/rate-limit-429-cooldown", h.Admin.Setting.UpdateRateLimit429CooldownSettings)
+		// 网关故障转移增强策略配置
+		adminSettings.GET("/gateway-failover-policy", h.Admin.Setting.GetGatewayFailoverPolicySettings)
+		adminSettings.PUT("/gateway-failover-policy", h.Admin.Setting.UpdateGatewayFailoverPolicySettings)
 		// 200 OK 响应内容关键词拦截配置
 		adminSettings.GET("/gateway-content-blocker", h.Admin.Setting.GetGatewayContentBlockerSettings)
 		adminSettings.PUT("/gateway-content-blocker", h.Admin.Setting.UpdateGatewayContentBlockerSettings)

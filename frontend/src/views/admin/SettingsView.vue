@@ -411,6 +411,324 @@
             </div>
           </div>
 
+          <!-- Gateway Failover Policy Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.gatewayFailoverPolicy.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.gatewayFailoverPolicy.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div
+                v-if="gatewayFailoverPolicyLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <div class="flex items-center justify-between gap-6">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">
+                      {{
+                        t("admin.settings.gatewayFailoverPolicy.structured400")
+                      }}
+                    </label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{
+                        t(
+                          "admin.settings.gatewayFailoverPolicy.structured400Hint",
+                        )
+                      }}
+                    </p>
+                  </div>
+                  <Toggle
+                    v-model="gatewayFailoverPolicyForm.structured_400_enabled"
+                  />
+                </div>
+
+                <div
+                  class="space-y-5 border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    <div
+                      v-if="
+                        gatewayFailoverPolicyForm.structured_400_enabled
+                      "
+                    >
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t(
+                            "admin.settings.gatewayFailoverPolicy.structured400Cooldown",
+                          )
+                        }}
+                      </label>
+                      <input
+                        v-model.number="
+                          gatewayFailoverPolicyForm.structured_400_cooldown_minutes
+                        "
+                        type="number"
+                        min="1"
+                        max="720"
+                        class="input w-32"
+                      />
+                      <p
+                        class="mt-1.5 text-xs text-gray-500 dark:text-gray-400"
+                      >
+                        {{
+                          t(
+                            "admin.settings.gatewayFailoverPolicy.structured400CooldownHint",
+                          )
+                        }}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t(
+                            "admin.settings.gatewayFailoverPolicy.jitterPercent",
+                          )
+                        }}
+                      </label>
+                      <input
+                        v-model.number="
+                          gatewayFailoverPolicyForm.failure_cooldown_jitter_percent
+                        "
+                        type="number"
+                        min="0"
+                        max="100"
+                        class="input w-32"
+                      />
+                      <p
+                        class="mt-1.5 text-xs text-gray-500 dark:text-gray-400"
+                      >
+                        {{
+                          t(
+                            "admin.settings.gatewayFailoverPolicy.jitterPercentHint",
+                          )
+                        }}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center justify-between gap-6">
+                    <div>
+                      <label class="font-medium text-gray-900 dark:text-white">
+                        {{ t("admin.settings.gatewayFailoverPolicy.http5xx") }}
+                      </label>
+                      <p class="text-sm text-gray-500 dark:text-gray-400">
+                        {{
+                          t("admin.settings.gatewayFailoverPolicy.http5xxHint")
+                        }}
+                      </p>
+                    </div>
+                    <Toggle
+                      v-model="
+                        gatewayFailoverPolicyForm.http_5xx_cooldown_enabled
+                      "
+                    />
+                  </div>
+
+                  <div
+                    v-if="
+                      gatewayFailoverPolicyForm.http_5xx_cooldown_enabled
+                    "
+                    class="grid gap-4 md:grid-cols-3"
+                  >
+                    <div>
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{ t("admin.settings.gatewayFailoverPolicy.threshold") }}
+                      </label>
+                      <input
+                        v-model.number="
+                          gatewayFailoverPolicyForm.http_5xx_threshold
+                        "
+                        type="number"
+                        min="1"
+                        max="20"
+                        class="input w-32"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t("admin.settings.gatewayFailoverPolicy.windowSeconds")
+                        }}
+                      </label>
+                      <input
+                        v-model.number="
+                          gatewayFailoverPolicyForm.http_5xx_window_seconds
+                        "
+                        type="number"
+                        min="1"
+                        max="3600"
+                        class="input w-32"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t(
+                            "admin.settings.gatewayFailoverPolicy.cooldownSeconds",
+                          )
+                        }}
+                      </label>
+                      <input
+                        v-model.number="
+                          gatewayFailoverPolicyForm.http_5xx_cooldown_seconds
+                        "
+                        type="number"
+                        min="1"
+                        max="7200"
+                        class="input w-32"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="flex items-center justify-between gap-6">
+                    <div>
+                      <label class="font-medium text-gray-900 dark:text-white">
+                        {{
+                          t("admin.settings.gatewayFailoverPolicy.transport")
+                        }}
+                      </label>
+                      <p class="text-sm text-gray-500 dark:text-gray-400">
+                        {{
+                          t(
+                            "admin.settings.gatewayFailoverPolicy.transportHint",
+                          )
+                        }}
+                      </p>
+                    </div>
+                    <Toggle
+                      v-model="
+                        gatewayFailoverPolicyForm.transport_cooldown_enabled
+                      "
+                    />
+                  </div>
+
+                  <div
+                    v-if="
+                      gatewayFailoverPolicyForm.transport_cooldown_enabled
+                    "
+                    class="grid gap-4 md:grid-cols-3"
+                  >
+                    <div>
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{ t("admin.settings.gatewayFailoverPolicy.threshold") }}
+                      </label>
+                      <input
+                        v-model.number="
+                          gatewayFailoverPolicyForm.transport_threshold
+                        "
+                        type="number"
+                        min="1"
+                        max="20"
+                        class="input w-32"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t("admin.settings.gatewayFailoverPolicy.windowSeconds")
+                        }}
+                      </label>
+                      <input
+                        v-model.number="
+                          gatewayFailoverPolicyForm.transport_window_seconds
+                        "
+                        type="number"
+                        min="1"
+                        max="3600"
+                        class="input w-32"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{
+                          t(
+                            "admin.settings.gatewayFailoverPolicy.cooldownSeconds",
+                          )
+                        }}
+                      </label>
+                      <input
+                        v-model.number="
+                          gatewayFailoverPolicyForm.transport_cooldown_seconds
+                        "
+                        type="number"
+                        min="1"
+                        max="7200"
+                        class="input w-32"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    @click="saveGatewayFailoverPolicySettings"
+                    :disabled="gatewayFailoverPolicySaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="gatewayFailoverPolicySaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      gatewayFailoverPolicySaving
+                        ? t("common.saving")
+                        : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- Gateway Content Blocker Settings -->
           <div class="card">
             <div
@@ -7302,6 +7620,23 @@ const rateLimit429CooldownForm = reactive({
   cooldown_seconds: 5,
 });
 
+// Gateway Failover Policy 状态
+const gatewayFailoverPolicyLoading = ref(true);
+const gatewayFailoverPolicySaving = ref(false);
+const gatewayFailoverPolicyForm = reactive({
+  structured_400_enabled: true,
+  structured_400_cooldown_minutes: 10,
+  failure_cooldown_jitter_percent: 20,
+  http_5xx_cooldown_enabled: true,
+  http_5xx_threshold: 3,
+  http_5xx_window_seconds: 30,
+  http_5xx_cooldown_seconds: 120,
+  transport_cooldown_enabled: true,
+  transport_threshold: 3,
+  transport_window_seconds: 30,
+  transport_cooldown_seconds: 120,
+});
+
 // Gateway Content Blocker 状态
 const gatewayContentBlockerLoading = ref(true);
 const gatewayContentBlockerSaving = ref(false);
@@ -9504,6 +9839,58 @@ async function saveRateLimit429CooldownSettings() {
   }
 }
 
+// Gateway Failover Policy 方法
+async function loadGatewayFailoverPolicySettings() {
+  gatewayFailoverPolicyLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getGatewayFailoverPolicySettings();
+    Object.assign(gatewayFailoverPolicyForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    gatewayFailoverPolicyLoading.value = false;
+  }
+}
+
+async function saveGatewayFailoverPolicySettings() {
+  gatewayFailoverPolicySaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateGatewayFailoverPolicySettings({
+      structured_400_enabled:
+        gatewayFailoverPolicyForm.structured_400_enabled,
+      structured_400_cooldown_minutes:
+        gatewayFailoverPolicyForm.structured_400_cooldown_minutes,
+      failure_cooldown_jitter_percent:
+        gatewayFailoverPolicyForm.failure_cooldown_jitter_percent,
+      http_5xx_cooldown_enabled:
+        gatewayFailoverPolicyForm.http_5xx_cooldown_enabled,
+      http_5xx_threshold: gatewayFailoverPolicyForm.http_5xx_threshold,
+      http_5xx_window_seconds:
+        gatewayFailoverPolicyForm.http_5xx_window_seconds,
+      http_5xx_cooldown_seconds:
+        gatewayFailoverPolicyForm.http_5xx_cooldown_seconds,
+      transport_cooldown_enabled:
+        gatewayFailoverPolicyForm.transport_cooldown_enabled,
+      transport_threshold: gatewayFailoverPolicyForm.transport_threshold,
+      transport_window_seconds:
+        gatewayFailoverPolicyForm.transport_window_seconds,
+      transport_cooldown_seconds:
+        gatewayFailoverPolicyForm.transport_cooldown_seconds,
+    });
+    Object.assign(gatewayFailoverPolicyForm, updated);
+    appStore.showSuccess(t("admin.settings.gatewayFailoverPolicy.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.gatewayFailoverPolicy.saveFailed"),
+      ),
+    );
+  } finally {
+    gatewayFailoverPolicySaving.value = false;
+  }
+}
+
 // Gateway Content Blocker 方法
 async function loadGatewayContentBlockerSettings() {
   gatewayContentBlockerLoading.value = true;
@@ -10154,6 +10541,7 @@ onMounted(() => {
   loadAdminApiKey();
   loadOverloadCooldownSettings();
   loadRateLimit429CooldownSettings();
+  loadGatewayFailoverPolicySettings();
   loadGatewayContentBlockerSettings();
   loadStreamTimeoutSettings();
   loadRectifierSettings();

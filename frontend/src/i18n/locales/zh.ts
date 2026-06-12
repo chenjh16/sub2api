@@ -6459,6 +6459,25 @@ export default {
         saved: '429 默认回避设置保存成功',
         saveFailed: '保存 429 默认回避设置失败'
       },
+      gatewayFailoverPolicy: {
+        title: '自动故障转移策略',
+        description: '配置 OpenAI 上游错误的自动切换，以及不稳定账号的短时间运行态冷却',
+        structured400: '结构化 400 故障转移',
+        structured400Hint: '将结构化 rate_limit_cooldown 和 rate_limit_exceeded/rpm 响应视为上游失败',
+        structured400Cooldown: '结构化 400 冷却（分钟）',
+        structured400CooldownHint: '结构化 400 命中后的运行态冷却时长（1-720 分钟）',
+        jitterPercent: '冷却抖动（%）',
+        jitterPercentHint: '作用于连续 5xx 与网络错误短冷却（0-100%）',
+        http5xx: 'HTTP 5xx 短冷却',
+        http5xxHint: '同一账号连续多次 5xx 故障转移后，触发短时间运行态冷却',
+        transport: '网络错误短冷却',
+        transportHint: '同一账号连续多次超时、TLS 或网络故障转移后，触发短时间运行态冷却',
+        threshold: '触发阈值',
+        windowSeconds: '统计窗口（秒）',
+        cooldownSeconds: '冷却时长（秒）',
+        saved: '自动故障转移策略保存成功',
+        saveFailed: '保存自动故障转移策略失败'
+      },
       gatewayContentBlocker: {
         title: '200 响应内容拦截',
         description: '通过关键词识别伪装成成功响应的上游维护、繁忙或换 Key 文案，并触发节点切换',

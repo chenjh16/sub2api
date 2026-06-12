@@ -444,6 +444,8 @@ const (
 	// SettingKeyOpenAIAllowClaudeCodeCodexPlugin 全局开关：是否额外放行 Claude Code 的 Codex 插件（默认 false）。
 	// 仅在账号 codex_cli_only 开启时生效；开启后无需逐账号配置 codex_cli_only_allowed_clients。
 	SettingKeyOpenAIAllowClaudeCodeCodexPlugin = "openai_allow_claude_code_codex_plugin"
+	// SettingKeyGatewayFailoverPolicySettings 网关故障转移增强策略配置。
+	SettingKeyGatewayFailoverPolicySettings = "gateway_failover_policy_settings"
 	// SettingKeyGatewayContentBlockerSettings 200 OK 响应内容关键词拦截配置（默认关闭）。
 	SettingKeyGatewayContentBlockerSettings = "gateway_content_blocker_settings"
 

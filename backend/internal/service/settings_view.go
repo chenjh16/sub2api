@@ -466,6 +466,32 @@ type RateLimit429CooldownSettings struct {
 	CooldownSeconds int `json:"cooldown_seconds"`
 }
 
+// GatewayFailoverPolicySettings 网关自动故障转移增强策略配置。
+type GatewayFailoverPolicySettings struct {
+	// Structured400Enabled 是否把结构化 400 限流/冷却错误视为可故障转移错误。
+	Structured400Enabled bool `json:"structured_400_enabled"`
+	// Structured400CooldownMinutes 结构化 400 命中后当前账号的运行时冷却时长。
+	Structured400CooldownMinutes int `json:"structured_400_cooldown_minutes"`
+	// FailureCooldownJitterPercent 连续失败短冷却的抖动百分比。
+	FailureCooldownJitterPercent int `json:"failure_cooldown_jitter_percent"`
+	// HTTP5xxCooldownEnabled 是否对连续 HTTP 5xx 失败启用短冷却。
+	HTTP5xxCooldownEnabled bool `json:"http_5xx_cooldown_enabled"`
+	// HTTP5xxThreshold 在窗口内达到多少次 HTTP 5xx 后触发短冷却。
+	HTTP5xxThreshold int `json:"http_5xx_threshold"`
+	// HTTP5xxWindowSeconds HTTP 5xx 连续失败统计窗口。
+	HTTP5xxWindowSeconds int `json:"http_5xx_window_seconds"`
+	// HTTP5xxCooldownSeconds HTTP 5xx 达阈值后的运行时冷却时长。
+	HTTP5xxCooldownSeconds int `json:"http_5xx_cooldown_seconds"`
+	// TransportCooldownEnabled 是否对连续瞬时网络/传输失败启用短冷却。
+	TransportCooldownEnabled bool `json:"transport_cooldown_enabled"`
+	// TransportThreshold 在窗口内达到多少次瞬时网络/传输失败后触发短冷却。
+	TransportThreshold int `json:"transport_threshold"`
+	// TransportWindowSeconds 瞬时网络/传输失败统计窗口。
+	TransportWindowSeconds int `json:"transport_window_seconds"`
+	// TransportCooldownSeconds 瞬时网络/传输失败达阈值后的运行时冷却时长。
+	TransportCooldownSeconds int `json:"transport_cooldown_seconds"`
+}
+
 // GatewayContentBlockerSettings 200 OK 响应内容关键词拦截配置
 type GatewayContentBlockerSettings struct {
 	// Enabled 是否启用 200 响应内容关键词拦截
@@ -491,6 +517,23 @@ func DefaultRateLimit429CooldownSettings() *RateLimit429CooldownSettings {
 	return &RateLimit429CooldownSettings{
 		Enabled:         true,
 		CooldownSeconds: 5,
+	}
+}
+
+// DefaultGatewayFailoverPolicySettings 返回默认的故障转移增强策略配置。
+func DefaultGatewayFailoverPolicySettings() *GatewayFailoverPolicySettings {
+	return &GatewayFailoverPolicySettings{
+		Structured400Enabled:         true,
+		Structured400CooldownMinutes: 10,
+		FailureCooldownJitterPercent: 20,
+		HTTP5xxCooldownEnabled:       true,
+		HTTP5xxThreshold:             3,
+		HTTP5xxWindowSeconds:         30,
+		HTTP5xxCooldownSeconds:       120,
+		TransportCooldownEnabled:     true,
+		TransportThreshold:           3,
+		TransportWindowSeconds:       30,
+		TransportCooldownSeconds:     120,
 	}
 }
 

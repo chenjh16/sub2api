@@ -369,6 +369,7 @@ type OpenAIGatewayService struct {
 
 	openaiWSFallbackUntil               sync.Map // key: int64(accountID), value: time.Time
 	openaiAccountRuntimeBlockUntil      sync.Map // key: int64(accountID), value: time.Time
+	openaiConsecutiveFailureCounters    sync.Map // key: openAIConsecutiveFailureKey, value: *openAIConsecutiveFailureCounter
 	openaiOAuth429WindowStartUnixNano   atomic.Int64
 	openaiOAuth429WindowCount           atomic.Int64
 	openaiWSRetryMetrics                openAIWSRetryMetrics
@@ -1176,18 +1177,37 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 	return match(string(upstreamBody))
 }
 
+func openAIUpstreamJSONField(upstreamBody []byte, path string) string {
+	return strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, path).String()))
+}
+
 func isOpenAIUpstreamCooldownFailoverError(upstreamStatusCode int, upstreamBody []byte) bool {
 	if upstreamStatusCode != http.StatusBadRequest || len(upstreamBody) == 0 || !gjson.ValidBytes(upstreamBody) {
 		return false
 	}
 
-	errCode := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.code").String()))
-	topLevelCode := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "code").String()))
-	limitType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "limit_type").String()))
+	errCode := openAIUpstreamJSONField(upstreamBody, "error.code")
+	topLevelCode := openAIUpstreamJSONField(upstreamBody, "code")
+	limitType := openAIUpstreamJSONField(upstreamBody, "limit_type")
 
 	return errCode == "rate_limit_cooldown" ||
 		topLevelCode == "rate_limit_cooldown" ||
 		limitType == "cooldown"
+}
+
+func isOpenAIUpstreamRateLimitExceededFailoverError(upstreamStatusCode int, upstreamBody []byte) bool {
+	if upstreamStatusCode != http.StatusBadRequest || len(upstreamBody) == 0 || !gjson.ValidBytes(upstreamBody) {
+		return false
+	}
+
+	errCode := openAIUpstreamJSONField(upstreamBody, "error.code")
+	topLevelCode := openAIUpstreamJSONField(upstreamBody, "code")
+	limitType := openAIUpstreamJSONField(upstreamBody, "limit_type")
+	nestedLimitType := openAIUpstreamJSONField(upstreamBody, "error.limit_type")
+
+	hasRateLimitExceededCode := errCode == "rate_limit_exceeded" || topLevelCode == "rate_limit_exceeded"
+	hasRPMCondition := limitType == "rpm" || nestedLimitType == "rpm"
+	return hasRateLimitExceededCode && hasRPMCondition
 }
 
 // ExtractSessionID extracts the raw session ID from headers or body without hashing.
@@ -2336,8 +2356,13 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}
-	if isOpenAIUpstreamCooldownFailoverError(statusCode, upstreamBody) {
-		return true
+	if s.isOpenAIStructured400FailoverEnabled(context.Background()) {
+		if isOpenAIUpstreamCooldownFailoverError(statusCode, upstreamBody) {
+			return true
+		}
+		if isOpenAIUpstreamRateLimitExceededFailoverError(statusCode, upstreamBody) {
+			return true
+		}
 	}
 	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
 }
@@ -3069,6 +3094,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			return s.handleErrorResponse(ctx, resp, c, account, body, billingModel)
 		}
+		s.clearOpenAIConsecutiveFailures(account)
 		defer func() { _ = resp.Body.Close() }()
 
 		reasoningEffort := extractOpenAIReasoningEffortFromBody(body, originalModel)
@@ -3319,6 +3345,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 		return nil, s.handleErrorResponsePassthrough(ctx, resp, c, account, body)
 	}
+	s.clearOpenAIConsecutiveFailures(account)
 
 	serviceTier := extractOpenAIServiceTierFromBody(body)
 

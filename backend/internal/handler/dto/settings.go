@@ -348,6 +348,21 @@ type RateLimit429CooldownSettings struct {
 	CooldownSeconds int  `json:"cooldown_seconds"`
 }
 
+// GatewayFailoverPolicySettings 网关故障转移增强策略配置 DTO
+type GatewayFailoverPolicySettings struct {
+	Structured400Enabled         bool `json:"structured_400_enabled"`
+	Structured400CooldownMinutes int  `json:"structured_400_cooldown_minutes"`
+	FailureCooldownJitterPercent int  `json:"failure_cooldown_jitter_percent"`
+	HTTP5xxCooldownEnabled       bool `json:"http_5xx_cooldown_enabled"`
+	HTTP5xxThreshold             int  `json:"http_5xx_threshold"`
+	HTTP5xxWindowSeconds         int  `json:"http_5xx_window_seconds"`
+	HTTP5xxCooldownSeconds       int  `json:"http_5xx_cooldown_seconds"`
+	TransportCooldownEnabled     bool `json:"transport_cooldown_enabled"`
+	TransportThreshold           int  `json:"transport_threshold"`
+	TransportWindowSeconds       int  `json:"transport_window_seconds"`
+	TransportCooldownSeconds     int  `json:"transport_cooldown_seconds"`
+}
+
 // GatewayContentBlockerSettings 200 OK 响应内容关键词拦截配置 DTO
 type GatewayContentBlockerSettings struct {
 	Enabled         bool     `json:"enabled"`
