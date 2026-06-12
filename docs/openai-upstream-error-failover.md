@@ -23,7 +23,7 @@
 
 ## 默认识别规则
 
-默认规则只依赖结构化 JSON 字段、HTTP 状态码和网络错误类型，不解析也不匹配自然语言 `message`。
+默认启用规则只依赖结构化 JSON 字段、HTTP 状态码和网络错误类型，不解析也不匹配自然语言 `message`。另有一条默认关闭的 200 内容公告文本规则，可由管理员按需启用。
 
 ### 冷却类错误
 
@@ -76,6 +76,7 @@ rate_limit_cooldown
 rate_limit_exceeded_rpm
 http_5xx_threshold
 transport_threshold
+content_blocker
 ```
 
 ## 自动故障转移策略配置
@@ -113,12 +114,14 @@ PUT /api/v1/admin/settings/gateway-failover-policy
       "event": "http_response",
       "match": {
         "status_codes": [400],
-        "json_logic": "any",
-        "json_conditions": [
-          { "path": "error.code", "op": "equals", "value": "rate_limit_cooldown" },
-          { "path": "code", "op": "equals", "value": "rate_limit_cooldown" },
-          { "path": "limit_type", "op": "equals", "value": "cooldown" }
-        ]
+        "json_condition_group": {
+          "logic": "any",
+          "conditions": [
+            { "path": "error.code", "op": "equals", "value": "rate_limit_cooldown" },
+            { "path": "code", "op": "equals", "value": "rate_limit_cooldown" },
+            { "path": "limit_type", "op": "equals", "value": "cooldown" }
+          ]
+        }
       },
       "action": {
         "failover": true,
@@ -128,22 +131,11 @@ PUT /api/v1/admin/settings/gateway-failover-policy
         "reason": "rate_limit_cooldown"
       }
     }
-  ],
-  "structured_400_enabled": true,
-  "structured_400_cooldown_minutes": 10,
-  "failure_cooldown_jitter_percent": 20,
-  "http_5xx_cooldown_enabled": true,
-  "http_5xx_threshold": 3,
-  "http_5xx_window_seconds": 30,
-  "http_5xx_cooldown_seconds": 120,
-  "transport_cooldown_enabled": true,
-  "transport_threshold": 3,
-  "transport_window_seconds": 30,
-  "transport_cooldown_seconds": 120
+  ]
 }
 ```
 
-`structured_400_*`、`http_5xx_*`、`transport_*` 等旧字段仍保留在 JSON 中，用于兼容旧 DB 和旧客户端。若数据库中没有 `rules`，Sub2API 会自动用这些旧字段生成默认规则；新管理页保存后会写入 `rules`。
+`structured_400_*`、`http_5xx_*`、`transport_*` 等旧固定字段已经移除。默认策略直接以 `rules` 的新格式保存和返回；若配置为空，Sub2API 会使用内置的 5 条默认规则。
 
 默认规则：
 
@@ -153,6 +145,7 @@ PUT /api/v1/admin/settings/gateway-failover-policy
 | `openai_structured_400_rpm` | `http_response` | 110 | 识别 `rate_limit_exceeded + limit_type=rpm`，failover，并运行时冷却 10 分钟 |
 | `openai_http_5xx_threshold` | `http_response` | 200 | `500-599` 除 `529` 外每次 failover；同账号 30 秒内连续 3 次后运行时冷却约 120 秒 |
 | `openai_transport_threshold` | `transport_error` | 300 | 瞬时网络错误每次 failover；同账号 30 秒内连续 3 次后运行时冷却约 120 秒 |
+| `openai_200_content_text` | `http_response` | 400 | 默认关闭；识别伪装成 `200 OK` 成功响应的维护、繁忙或公告文本，failover，并运行时冷却 10 分钟 |
 
 规则字段说明：
 
@@ -165,13 +158,13 @@ PUT /api/v1/admin/settings/gateway-failover-policy
 | `match.status_codes` | 精确 HTTP 状态码 |
 | `match.status_ranges` | HTTP 状态码范围，例如 `{ "min": 500, "max": 599 }` |
 | `match.exclude_status_codes` | 从命中结果中排除的状态码 |
-| `match.json_logic` / `match.header_logic` | 条件组合方式：`all` 或 `any` |
-| `match.json_conditions` | 基于 `gjson` 路径匹配响应 JSON；支持 `path` 或 `paths` |
-| `match.header_conditions` | 匹配响应头 |
-| `match.message_conditions` | 匹配提取出的上游错误 message |
-| `match.body_conditions` | 匹配原始响应体文本 |
-| `match.transport_conditions` | 匹配网络错误文本 |
+| `match.json_condition_group` | JSON 条件组，基于 `gjson` 路径匹配响应 JSON；支持 `path` 或 `paths` |
+| `match.header_condition_group` | Header 条件组，匹配响应头 |
+| `match.message_condition_group` | Message 条件组，匹配提取出的上游错误 message |
+| `match.body_condition_group` | Body 条件组，匹配原始响应体文本 |
+| `match.transport_condition_group` | 网络错误条件组，匹配网络错误文本 |
 | `match.transport_persistent` | `true` 只匹配持久网络错误，`false` 只匹配瞬时网络错误，缺省表示任意 |
+| `match.max_scan_bytes` | 200 内容规则扫描响应前缀的最大字节数，默认 `65536`，范围 `1024-1048576` |
 | `match.consecutive` | 连续失败窗口，命中规则每次都可以 failover，达到阈值后才执行冷却 |
 | `action.failover` | 命中后是否把本次响应转换为 `UpstreamFailoverError` |
 | `action.cooldown_scope` | `none`、`runtime` 或 `temp_unsched` |
@@ -185,6 +178,28 @@ PUT /api/v1/admin/settings/gateway-failover-policy
 equals, not_equals, contains, not_contains, exists, not_exists, in, regex
 ```
 
+条件组格式：
+
+```json
+{
+  "logic": "all",
+  "conditions": [
+    { "op": "contains", "value": "当前繁忙" }
+  ],
+  "groups": [
+    {
+      "logic": "any",
+      "conditions": [
+        { "op": "contains", "value": "公益服务器压力很大" },
+        { "op": "contains", "value": "UniverseFederation" }
+      ]
+    }
+  ]
+}
+```
+
+每个条件组的 `logic` 可取 `all` 或 `any`，`groups` 可继续嵌套，因此可以表达 `(A OR B) AND C`、`A OR (B AND C)` 等组合。HTTP 状态码、JSON、Header、Message、Body 条件组之间仍按 AND 组合；如果需要跨类别 OR，建议拆成多条规则并用 `priority` 控制顺序。
+
 配置保存到 DB 后会通过 `SettingService` 60 秒进程缓存被网关热路径读取，无需重启服务。
 
 ## 管理页编辑
@@ -192,7 +207,7 @@ equals, not_equals, contains, not_contains, exists, not_exists, in, regex
 管理页提供两种编辑方式：
 
 - 可视化编辑：适合调整默认规则开关、优先级、状态码、连续窗口和冷却动作。
-- JSON 编辑：适合批量编辑复杂 `json_conditions`、`header_conditions`、`message_conditions`、`body_conditions` 或自定义正则规则。
+- JSON 编辑：适合批量编辑复杂 `*_condition_group` 或自定义正则规则。
 
 每条默认规则都作为普通规则条目展示，可以独立开关、复制后修改，也可以删除。建议保留默认规则作为基线，新增自定义规则时使用更小的 `priority` 提前拦截更具体的错误。
 
@@ -213,21 +228,55 @@ equals, not_equals, contains, not_contains, exists, not_exists, in, regex
 
 成功收到非错误 HTTP 响应后，网关会清除该账号的连续失败计数。流式响应一旦已经向下游写出内容，仍不能无痕切换账号。
 
-## 与 200 响应内容拦截的关系
+## 200 内容公告文本规则
 
-本功能处理 HTTP 错误响应，尤其是 `400` 中带结构化限流字段的情况。
+`openai_200_content_text` 已并入自动故障转移策略，不再有单独的“200 响应内容拦截”设置项或 API。它处理另一类问题：上游返回 HTTP `200 OK`，但响应内容里包含维护、繁忙、换 Key、公告等文本。如果直接透传，下游 Agent 会把这些文本当作模型输出。
 
-管理后台的“200 响应内容拦截”处理另一类问题：上游返回 HTTP 200，但响应内容里包含维护、繁忙、换 Key 等公告文本。两者互补：
+默认规则：
 
-- HTTP `400 + rate_limit_cooldown/cooldown`：结构化错误 failover
-- HTTP `400 + rate_limit_exceeded/rpm`：结构化错误 failover
-- HTTP `200 + 维护公告文本`：200 内容关键词拦截
+```json
+{
+  "id": "openai_200_content_text",
+  "enabled": false,
+  "event": "http_response",
+  "priority": 400,
+  "match": {
+    "status_codes": [200],
+    "max_scan_bytes": 65536,
+    "message_condition_group": {
+      "logic": "any",
+      "conditions": [
+        { "op": "contains", "value": "当前繁忙，休息十分钟" },
+        { "op": "contains", "value": "公益服务器压力很大" },
+        { "op": "contains", "value": "api.ranmeng.icu 提示：站点维护中" }
+      ]
+    }
+  },
+  "action": {
+    "failover": true,
+    "cooldown_scope": "runtime",
+    "cooldown_seconds": 600,
+    "jitter_percent": 0,
+    "reason": "content_blocker"
+  }
+}
+```
+
+启用方式：
+
+1. 进入 `设置 -> 网关服务 -> 自动故障转移策略`。
+2. 找到 `200 内容公告文本` 规则并开启。
+3. 在 `message_condition_group.conditions` 中维护关键词；复杂条件可切到 JSON 编辑模式。
+4. 如需调整扫描前缀，修改 `match.max_scan_bytes`。
+5. 如需调整命中后冷却，修改 `action.cooldown_seconds`。
+
+匹配器会提取 JSON/SSE 中常见文本字段并支持跨流式 chunk 拼接，例如第一段输出“站点”，第二段输出“维护中”，仍可命中“站点维护中”。如果在首个下游输出写出前命中，网关会返回 `UpstreamFailoverError` 触发换节点，并不会把原始公告文本发给客户端；如果已经向下游写出部分流式内容，则无法再无痕切换，只能记录并中断当前流。
 
 ## 边界
 
-- 不根据 `message` 中的“十分钟”“当前繁忙”等文本做兜底判断。
-- 不从 `message` 中解析冷却时间，命中后使用 `structured_400_cooldown_minutes`，默认 10 分钟。
-- 非 JSON 响应不会被结构化规则识别。
+- 默认启用规则不根据 `message` 中的“十分钟”“当前繁忙”等文本做兜底判断；只有管理员启用并配置 200 内容规则后，才会按规则匹配文本。
+- 不从 `message` 中解析冷却时间；结构化 400 和 200 内容规则默认命中后冷却 10 分钟，如需调整，可直接修改对应规则的 `action.cooldown_seconds`。
+- 非 JSON 响应不会被结构化 400 规则识别；200 内容规则会扫描提取文本或原始响应前缀。
 - 其他普通 `400` 参数错误仍按原有错误处理流程返回。
 - 连续失败计数是进程内状态，多实例部署时各实例独立统计。
 - 连续失败短冷却不替代已有 `429`、`529`、鉴权错误、模型不存在等持久状态处理。
@@ -239,6 +288,7 @@ equals, not_equals, contains, not_contains, exists, not_exists, in, regex
 ```bash
 cd backend
 go test ./internal/service -run 'TestGatewayFailoverPolicy|TestIsOpenAIUpstreamRateLimitExceededFailoverError|TestOpenAIUpstreamRateLimitExceededRPM'
+go test ./internal/service -run 'TestOpenAI200ContentRule'
 ```
 
 相关包测试：

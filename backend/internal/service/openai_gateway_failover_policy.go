@@ -15,11 +15,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	openAIConsecutiveFailureCategoryHTTP5xx   = "http_5xx"
-	openAIConsecutiveFailureCategoryTransport = "transport"
-)
-
 type openAIConsecutiveFailureKey struct {
 	accountID int64
 	category  string
@@ -56,19 +51,6 @@ func (s *OpenAIGatewayService) openAIGatewayFailoverPolicySettings(ctx context.C
 		return s.settingService.GetGatewayFailoverPolicySettingsCached(ctx)
 	}
 	return DefaultGatewayFailoverPolicySettings()
-}
-
-func (s *OpenAIGatewayService) isOpenAIStructured400FailoverEnabled(ctx context.Context) bool {
-	settings := s.openAIGatewayFailoverPolicySettings(ctx)
-	return settings == nil || settings.Structured400Enabled
-}
-
-func (s *OpenAIGatewayService) openAIStructured400CooldownDuration(ctx context.Context) time.Duration {
-	settings := s.openAIGatewayFailoverPolicySettings(ctx)
-	if settings == nil || settings.Structured400CooldownMinutes <= 0 {
-		return openAIUpstreamCooldownFallback
-	}
-	return time.Duration(settings.Structured400CooldownMinutes) * time.Minute
 }
 
 func (s *OpenAIGatewayService) decideOpenAIFailoverRule(ctx context.Context, event openAIFailoverRuleEvent) *openAIFailoverRuleDecision {
@@ -131,16 +113,16 @@ func matchesOpenAIFailoverRule(rule GatewayFailoverRule, event openAIFailoverRul
 		if !matchesGatewayFailoverStatus(match, event.StatusCode) {
 			return false
 		}
-		if !matchesGatewayFailoverJSONConditions(match.JSONLogic, match.JSONConditions, event.Body) {
+		if !matchesGatewayFailoverJSONConditionGroup(match.JSONConditionGroup, event.Body) {
 			return false
 		}
-		if !matchesGatewayFailoverHeaderConditions(match.HeaderLogic, match.HeaderConditions, event.Headers) {
+		if !matchesGatewayFailoverHeaderConditionGroup(match.HeaderConditionGroup, event.Headers) {
 			return false
 		}
-		if !matchesGatewayFailoverValueConditions(GatewayFailoverRuleLogicAll, match.MessageConditions, event.UpstreamMessage) {
+		if !matchesGatewayFailoverValueConditionGroup(match.MessageConditionGroup, event.UpstreamMessage) {
 			return false
 		}
-		if len(match.BodyConditions) > 0 && !matchesGatewayFailoverValueConditions(GatewayFailoverRuleLogicAll, match.BodyConditions, string(event.Body)) {
+		if !matchesGatewayFailoverValueConditionGroup(match.BodyConditionGroup, string(event.Body)) {
 			return false
 		}
 		return true
@@ -149,7 +131,7 @@ func matchesOpenAIFailoverRule(rule GatewayFailoverRule, event openAIFailoverRul
 	if match.TransportPersistent != nil && *match.TransportPersistent != event.TransportPersistent {
 		return false
 	}
-	if !matchesGatewayFailoverValueConditions(GatewayFailoverRuleLogicAll, match.TransportConditions, event.TransportError) {
+	if !matchesGatewayFailoverValueConditionGroup(match.TransportConditionGroup, event.TransportError) {
 		return false
 	}
 	return true
@@ -177,13 +159,16 @@ func matchesGatewayFailoverStatus(match GatewayFailoverRuleMatch, statusCode int
 	return false
 }
 
-func matchesGatewayFailoverJSONConditions(logic string, conditions []GatewayFailoverJSONCondition, body []byte) bool {
-	if len(conditions) == 0 {
+func matchesGatewayFailoverJSONConditionGroup(group *GatewayFailoverJSONConditionGroup, body []byte) bool {
+	if group == nil {
 		return true
 	}
-	anyMode := normalizeGatewayFailoverRuleLogic(logic) == GatewayFailoverRuleLogicAny
-	matched := false
-	for _, condition := range conditions {
+	total := len(group.Conditions) + len(group.Groups)
+	if total == 0 {
+		return true
+	}
+	anyMode := normalizeGatewayFailoverRuleLogic(group.Logic) == GatewayFailoverRuleLogicAny
+	for _, condition := range group.Conditions {
 		ok := matchesGatewayFailoverJSONCondition(condition, body)
 		if anyMode && ok {
 			return true
@@ -191,9 +176,17 @@ func matchesGatewayFailoverJSONConditions(logic string, conditions []GatewayFail
 		if !anyMode && !ok {
 			return false
 		}
-		matched = matched || ok
 	}
-	return matched
+	for i := range group.Groups {
+		ok := matchesGatewayFailoverJSONConditionGroup(&group.Groups[i], body)
+		if anyMode && ok {
+			return true
+		}
+		if !anyMode && !ok {
+			return false
+		}
+	}
+	return !anyMode
 }
 
 func matchesGatewayFailoverJSONCondition(condition GatewayFailoverJSONCondition, body []byte) bool {
@@ -217,44 +210,62 @@ func matchesGatewayFailoverJSONCondition(condition GatewayFailoverJSONCondition,
 	return false
 }
 
-func matchesGatewayFailoverHeaderConditions(logic string, conditions []GatewayFailoverHeaderCondition, headers http.Header) bool {
-	if len(conditions) == 0 {
+func matchesGatewayFailoverHeaderConditionGroup(group *GatewayFailoverHeaderConditionGroup, headers http.Header) bool {
+	if group == nil {
 		return true
 	}
-	anyMode := normalizeGatewayFailoverRuleLogic(logic) == GatewayFailoverRuleLogicAny
-	matched := false
-	for _, condition := range conditions {
-		value := ""
-		exists := false
-		if headers != nil {
-			values, ok := headers[http.CanonicalHeaderKey(condition.Name)]
-			exists = ok && len(values) > 0
-			value = strings.Join(values, ",")
-		}
-		ok := matchesGatewayFailoverConditionValue(exists, value, GatewayFailoverValueCondition{
-			Op:     condition.Op,
-			Value:  condition.Value,
-			Values: condition.Values,
-		})
+	total := len(group.Conditions) + len(group.Groups)
+	if total == 0 {
+		return true
+	}
+	anyMode := normalizeGatewayFailoverRuleLogic(group.Logic) == GatewayFailoverRuleLogicAny
+	for _, condition := range group.Conditions {
+		ok := matchesGatewayFailoverHeaderCondition(condition, headers)
 		if anyMode && ok {
 			return true
 		}
 		if !anyMode && !ok {
 			return false
 		}
-		matched = matched || ok
 	}
-	return matched
+	for i := range group.Groups {
+		ok := matchesGatewayFailoverHeaderConditionGroup(&group.Groups[i], headers)
+		if anyMode && ok {
+			return true
+		}
+		if !anyMode && !ok {
+			return false
+		}
+	}
+	return !anyMode
 }
 
-func matchesGatewayFailoverValueConditions(logic string, conditions []GatewayFailoverValueCondition, text string) bool {
-	if len(conditions) == 0 {
+func matchesGatewayFailoverHeaderCondition(condition GatewayFailoverHeaderCondition, headers http.Header) bool {
+	value := ""
+	exists := false
+	if headers != nil {
+		values, ok := headers[http.CanonicalHeaderKey(condition.Name)]
+		exists = ok && len(values) > 0
+		value = strings.Join(values, ",")
+	}
+	return matchesGatewayFailoverConditionValue(exists, value, GatewayFailoverValueCondition{
+		Op:     condition.Op,
+		Value:  condition.Value,
+		Values: condition.Values,
+	})
+}
+
+func matchesGatewayFailoverValueConditionGroup(group *GatewayFailoverValueConditionGroup, text string) bool {
+	if group == nil {
 		return true
 	}
-	anyMode := normalizeGatewayFailoverRuleLogic(logic) == GatewayFailoverRuleLogicAny
+	total := len(group.Conditions) + len(group.Groups)
+	if total == 0 {
+		return true
+	}
+	anyMode := normalizeGatewayFailoverRuleLogic(group.Logic) == GatewayFailoverRuleLogicAny
 	exists := text != ""
-	matched := false
-	for _, condition := range conditions {
+	for _, condition := range group.Conditions {
 		ok := matchesGatewayFailoverConditionValue(exists, text, condition)
 		if anyMode && ok {
 			return true
@@ -262,9 +273,17 @@ func matchesGatewayFailoverValueConditions(logic string, conditions []GatewayFai
 		if !anyMode && !ok {
 			return false
 		}
-		matched = matched || ok
 	}
-	return matched
+	for i := range group.Groups {
+		ok := matchesGatewayFailoverValueConditionGroup(&group.Groups[i], text)
+		if anyMode && ok {
+			return true
+		}
+		if !anyMode && !ok {
+			return false
+		}
+	}
+	return !anyMode
 }
 
 func matchesGatewayFailoverConditionValue(exists bool, raw string, condition GatewayFailoverValueCondition) bool {
@@ -365,64 +384,6 @@ func (s *OpenAIGatewayService) clearOpenAIConsecutiveFailures(account *Account) 
 		}
 		return true
 	})
-}
-
-func (s *OpenAIGatewayService) maybeBlockOpenAIHTTP5xxFailure(ctx context.Context, account *Account, statusCode int) bool {
-	if statusCode < http.StatusInternalServerError || statusCode == 529 || !isOpenAIAccount(account) {
-		return false
-	}
-	settings := s.openAIGatewayFailoverPolicySettings(ctx)
-	if settings == nil || !settings.HTTP5xxCooldownEnabled {
-		return false
-	}
-
-	count, reached := s.recordOpenAIConsecutiveFailure(
-		account,
-		openAIConsecutiveFailureCategoryHTTP5xx,
-		settings.HTTP5xxThreshold,
-		time.Duration(settings.HTTP5xxWindowSeconds)*time.Second,
-	)
-	if !reached {
-		return false
-	}
-
-	cooldown := openAIFailureCooldownWithJitter(
-		time.Duration(settings.HTTP5xxCooldownSeconds)*time.Second,
-		settings.FailureCooldownJitterPercent,
-	)
-	until := time.Now().Add(cooldown)
-	s.BlockAccountScheduling(account, until, "http_5xx_threshold")
-	s.logOpenAIFailoverPolicyCooldown(account, openAIConsecutiveFailureCategoryHTTP5xx, statusCode, count, settings.HTTP5xxThreshold, until, "http_5xx_threshold")
-	return true
-}
-
-func (s *OpenAIGatewayService) maybeBlockOpenAITransportFailure(ctx context.Context, account *Account, safeErr string) bool {
-	if !isOpenAIAccount(account) {
-		return false
-	}
-	settings := s.openAIGatewayFailoverPolicySettings(ctx)
-	if settings == nil || !settings.TransportCooldownEnabled {
-		return false
-	}
-
-	count, reached := s.recordOpenAIConsecutiveFailure(
-		account,
-		openAIConsecutiveFailureCategoryTransport,
-		settings.TransportThreshold,
-		time.Duration(settings.TransportWindowSeconds)*time.Second,
-	)
-	if !reached {
-		return false
-	}
-
-	cooldown := openAIFailureCooldownWithJitter(
-		time.Duration(settings.TransportCooldownSeconds)*time.Second,
-		settings.FailureCooldownJitterPercent,
-	)
-	until := time.Now().Add(cooldown)
-	s.BlockAccountScheduling(account, until, "transport_threshold")
-	s.logOpenAIFailoverPolicyCooldown(account, openAIConsecutiveFailureCategoryTransport, 0, count, settings.TransportThreshold, until, "transport_threshold", zap.String("transport_error", safeErr))
-	return true
 }
 
 func (s *OpenAIGatewayService) applyOpenAIFailoverRuleSideEffects(ctx context.Context, account *Account, event openAIFailoverRuleEvent, rule GatewayFailoverRule) bool {
