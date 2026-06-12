@@ -106,27 +106,32 @@ func TestGatewayFailoverPolicySettings_DefaultsWhenNotSet(t *testing.T) {
 	settings, err := svc.GetGatewayFailoverPolicySettings(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "first", settings.MatchMode)
-	require.Len(t, settings.Rules, 4)
-	require.True(t, settings.Structured400Enabled)
-	require.Equal(t, 10, settings.Structured400CooldownMinutes)
-	require.Equal(t, 20, settings.FailureCooldownJitterPercent)
-	require.True(t, settings.HTTP5xxCooldownEnabled)
-	require.Equal(t, 3, settings.HTTP5xxThreshold)
-	require.Equal(t, 30, settings.HTTP5xxWindowSeconds)
-	require.Equal(t, 120, settings.HTTP5xxCooldownSeconds)
-	require.True(t, settings.TransportCooldownEnabled)
-	require.Equal(t, 3, settings.TransportThreshold)
-	require.Equal(t, 30, settings.TransportWindowSeconds)
-	require.Equal(t, 120, settings.TransportCooldownSeconds)
+	require.Len(t, settings.Rules, 5)
+	require.Equal(t, "openai_structured_400_cooldown", settings.Rules[0].ID)
+	require.NotNil(t, settings.Rules[0].Match.JSONConditionGroup)
+	require.Equal(t, GatewayFailoverRuleLogicAny, settings.Rules[0].Match.JSONConditionGroup.Logic)
+	require.Equal(t, 3, len(settings.Rules[0].Match.JSONConditionGroup.Conditions))
+	require.Equal(t, int(openAIUpstreamCooldownFallback/time.Second), settings.Rules[0].Action.CooldownSeconds)
+	require.Equal(t, "openai_http_5xx_threshold", settings.Rules[2].ID)
+	require.Equal(t, gatewayFailoverPolicyDefaultHTTP5xxThreshold, settings.Rules[2].Match.Consecutive.Threshold)
+	require.Equal(t, gatewayFailoverPolicyDefaultHTTP5xxCooldownSecond, settings.Rules[2].Action.CooldownSeconds)
+	require.Equal(t, "openai_transport_threshold", settings.Rules[3].ID)
+	require.Equal(t, gatewayFailoverPolicyDefaultTransportThreshold, settings.Rules[3].Match.Consecutive.Threshold)
+	require.Equal(t, "openai_200_content_text", settings.Rules[4].ID)
+	require.False(t, settings.Rules[4].Enabled)
+	require.Equal(t, []int{http.StatusOK}, settings.Rules[4].Match.StatusCodes)
+	require.Equal(t, gatewayFailoverPolicyDefaultScanBytes, settings.Rules[4].Match.MaxScanBytes)
+	require.NotNil(t, settings.Rules[4].Match.MessageConditionGroup)
+	require.Equal(t, GatewayFailoverRuleLogicAny, settings.Rules[4].Match.MessageConditionGroup.Logic)
 }
 
 func TestSetGatewayFailoverPolicySettings_RoundTrip(t *testing.T) {
 	repo := newGatewayFailoverPolicySettingRepo()
 	svc := NewSettingService(repo, &config.Config{})
 	want := DefaultGatewayFailoverPolicySettings()
-	want.FailureCooldownJitterPercent = 0
 	updateGatewayFailoverRule(t, want, "openai_structured_400_rpm", func(rule *GatewayFailoverRule) {
 		rule.Enabled = false
+		rule.Action.JitterPercent = 0
 	})
 	updateGatewayFailoverRule(t, want, "openai_http_5xx_threshold", func(rule *GatewayFailoverRule) {
 		rule.Match.Consecutive.Threshold = 2
@@ -141,6 +146,91 @@ func TestSetGatewayFailoverPolicySettings_RoundTrip(t *testing.T) {
 	normalizedWant, err := normalizeGatewayFailoverPolicySettings(want, true)
 	require.NoError(t, err)
 	require.Equal(t, normalizedWant, got)
+}
+
+func TestGatewayFailoverPolicy_ConditionGroupsSupportNestedLogic(t *testing.T) {
+	rule := GatewayFailoverRule{
+		ID:       "nested_http",
+		Enabled:  true,
+		Event:    GatewayFailoverRuleEventHTTPResponse,
+		Priority: 1,
+		Match: GatewayFailoverRuleMatch{
+			StatusCodes: []int{http.StatusBadRequest},
+			JSONConditionGroup: &GatewayFailoverJSONConditionGroup{
+				Logic: GatewayFailoverRuleLogicAll,
+				Conditions: []GatewayFailoverJSONCondition{
+					{Paths: []string{"error.code", "code"}, Op: GatewayFailoverRuleOpEquals, Value: "rate_limit_exceeded"},
+				},
+				Groups: []GatewayFailoverJSONConditionGroup{
+					{
+						Logic: GatewayFailoverRuleLogicAny,
+						Conditions: []GatewayFailoverJSONCondition{
+							{Path: "limit_type", Op: GatewayFailoverRuleOpEquals, Value: "rpm"},
+							{Path: "error.limit_type", Op: GatewayFailoverRuleOpEquals, Value: "cooldown"},
+						},
+					},
+				},
+			},
+			HeaderConditionGroup: &GatewayFailoverHeaderConditionGroup{
+				Logic: GatewayFailoverRuleLogicAny,
+				Conditions: []GatewayFailoverHeaderCondition{
+					{Name: "x-upstream", Op: GatewayFailoverRuleOpContains, Value: "ikun"},
+					{Name: "x-fallback", Op: GatewayFailoverRuleOpExists},
+				},
+			},
+			MessageConditionGroup: &GatewayFailoverValueConditionGroup{
+				Logic: GatewayFailoverRuleLogicAny,
+				Conditions: []GatewayFailoverValueCondition{
+					{Op: GatewayFailoverRuleOpContains, Value: "当前繁忙"},
+					{Op: GatewayFailoverRuleOpContains, Value: "公益服务器压力很大"},
+				},
+			},
+			BodyConditionGroup: &GatewayFailoverValueConditionGroup{
+				Logic: GatewayFailoverRuleLogicAll,
+				Conditions: []GatewayFailoverValueCondition{
+					{Op: GatewayFailoverRuleOpContains, Value: "UniverseFederation"},
+					{Op: GatewayFailoverRuleOpNotContains, Value: "fatal"},
+				},
+			},
+		},
+		Action: GatewayFailoverRuleAction{Failover: true},
+	}
+
+	event := openAIFailoverRuleEvent{
+		Event:           GatewayFailoverRuleEventHTTPResponse,
+		StatusCode:      http.StatusBadRequest,
+		Headers:         http.Header{"X-Upstream": []string{"AI-ikun886"}},
+		UpstreamMessage: "当前繁忙，休息十分钟",
+		Body:            []byte(`{"error":{"code":"rate_limit_exceeded"},"limit_type":"rpm","message":"TG https://t.me/UniverseFederation"}`),
+	}
+	require.True(t, matchesOpenAIFailoverRule(rule, event))
+
+	event.Body = []byte(`{"error":{"code":"rate_limit_exceeded"},"limit_type":"tpm","message":"TG https://t.me/UniverseFederation"}`)
+	require.False(t, matchesOpenAIFailoverRule(rule, event))
+
+	transportRule := GatewayFailoverRule{
+		ID:      "nested_transport",
+		Enabled: true,
+		Event:   GatewayFailoverRuleEventTransportError,
+		Match: GatewayFailoverRuleMatch{
+			TransportConditionGroup: &GatewayFailoverValueConditionGroup{
+				Logic: GatewayFailoverRuleLogicAny,
+				Conditions: []GatewayFailoverValueCondition{
+					{Op: GatewayFailoverRuleOpContains, Value: "timeout"},
+					{Op: GatewayFailoverRuleOpRegex, Value: "connection.*reset"},
+				},
+			},
+		},
+		Action: GatewayFailoverRuleAction{Failover: true},
+	}
+	require.True(t, matchesOpenAIFailoverRule(transportRule, openAIFailoverRuleEvent{
+		Event:          GatewayFailoverRuleEventTransportError,
+		TransportError: "context deadline exceeded: timeout",
+	}))
+	require.False(t, matchesOpenAIFailoverRule(transportRule, openAIFailoverRuleEvent{
+		Event:          GatewayFailoverRuleEventTransportError,
+		TransportError: "certificate expired",
+	}))
 }
 
 func TestGatewayFailoverPolicy_DisablesStructured400Failover(t *testing.T) {
