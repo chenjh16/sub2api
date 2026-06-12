@@ -1340,6 +1340,39 @@ export async function updatePanelRateLimitSettings(
   return data;
 }
 
+// ==================== Gateway Failover Policy Settings ====================
+
+export interface GatewayFailoverPolicySettings {
+  structured_400_enabled: boolean;
+  structured_400_cooldown_minutes: number;
+  failure_cooldown_jitter_percent: number;
+  http_5xx_cooldown_enabled: boolean;
+  http_5xx_threshold: number;
+  http_5xx_window_seconds: number;
+  http_5xx_cooldown_seconds: number;
+  transport_cooldown_enabled: boolean;
+  transport_threshold: number;
+  transport_window_seconds: number;
+  transport_cooldown_seconds: number;
+}
+
+export async function getGatewayFailoverPolicySettings(): Promise<GatewayFailoverPolicySettings> {
+  const { data } = await apiClient.get<GatewayFailoverPolicySettings>(
+    "/admin/settings/gateway-failover-policy",
+  );
+  return data;
+}
+
+export async function updateGatewayFailoverPolicySettings(
+  settings: GatewayFailoverPolicySettings,
+): Promise<GatewayFailoverPolicySettings> {
+  const { data } = await apiClient.put<GatewayFailoverPolicySettings>(
+    "/admin/settings/gateway-failover-policy",
+    settings,
+  );
+  return data;
+}
+
 // ==================== Gateway Content Blocker Settings ====================
 
 export interface GatewayContentBlockerSettings {
@@ -1595,6 +1628,8 @@ export const settingsAPI = {
   updateRateLimit429CooldownSettings,
   getPanelRateLimitSettings,
   updatePanelRateLimitSettings,
+  getGatewayFailoverPolicySettings,
+  updateGatewayFailoverPolicySettings,
   getGatewayContentBlockerSettings,
   updateGatewayContentBlockerSettings,
   getStreamTimeoutSettings,

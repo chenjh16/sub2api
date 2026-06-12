@@ -361,6 +361,8 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		resp.Body = newGrokResponsesClientToolStreamBody(resp.Body, mapping, maxLineSize)
 	}
 
+	s.clearOpenAIConsecutiveFailures(account)
+
 	serviceTier := extractOpenAIServiceTierFromBody(body)
 
 	// x-codex-turn-state 溯源：下游回传由 writeOpenAIPassthroughResponseHeaders

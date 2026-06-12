@@ -570,6 +570,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// 面板 API 限流配置
 		adminSettings.GET("/panel-rate-limit", h.Admin.Setting.GetPanelRateLimitSettings)
 		adminSettings.PUT("/panel-rate-limit", h.Admin.Setting.UpdatePanelRateLimitSettings)
+		// 网关故障转移增强策略配置
+		adminSettings.GET("/gateway-failover-policy", h.Admin.Setting.GetGatewayFailoverPolicySettings)
+		adminSettings.PUT("/gateway-failover-policy", h.Admin.Setting.UpdateGatewayFailoverPolicySettings)
 		// 200 OK 响应内容关键词拦截配置
 		adminSettings.GET("/gateway-content-blocker", h.Admin.Setting.GetGatewayContentBlockerSettings)
 		adminSettings.PUT("/gateway-content-blocker", h.Admin.Setting.UpdateGatewayContentBlockerSettings)
