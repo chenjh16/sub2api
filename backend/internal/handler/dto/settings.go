@@ -440,6 +440,14 @@ type PanelRateLimitSettings struct {
 	PublicIPRPM int  `json:"public_ip_rpm"`
 }
 
+// GatewayContentBlockerSettings 200 OK 响应内容关键词拦截配置 DTO
+type GatewayContentBlockerSettings struct {
+	Enabled         bool     `json:"enabled"`
+	Keywords        []string `json:"keywords"`
+	CooldownMinutes int      `json:"cooldown_minutes"`
+	MaxScanBytes    int      `json:"max_scan_bytes"`
+}
+
 // StreamTimeoutSettings 流超时处理配置 DTO
 type StreamTimeoutSettings struct {
 	Enabled                bool   `json:"enabled"`

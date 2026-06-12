@@ -219,6 +219,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	failedMessage := ""
 	clientOutputStarted := false
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
+	contentBlocker := s.newOpenAI200ContentBlockerDetector(ctx)
 	var streamEarlyErr error
 	eventInProgress := false
 	eventStartsClientOutput := false
@@ -467,6 +468,15 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				line = "data: " + data
 			}
 			imageCounter.AddSSEData(dataBytes)
+			if matched, keyword := contentBlocker.ObservePayload(dataBytes); matched {
+				failoverErr := s.newOpenAI200ContentBlockerFailoverError(c, account, upstreamRequestID, keyword)
+				if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+					streamEarlyErr = failoverErr
+				} else {
+					streamEarlyErr = openAI200ContentBlockerMatchedAfterOutputError()
+				}
+				return
+			}
 
 			// Correct Codex tool calls if needed (apply_patch -> edit, etc.)
 			if correctedData, corrected := s.toolCorrector.CorrectToolCallsInSSEBytes(dataBytes); corrected {
@@ -1123,6 +1133,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		observeOpenAISSEBody(observer, string(body))
 	} else {
 		observer.ObserveOpenAI(body, strings.TrimSpace(gjson.GetBytes(body, "type").String()))
+	}
+	if failoverErr := s.checkOpenAI200ContentBlocker(ctx, c, account, resp.Header.Get("x-request-id"), body); failoverErr != nil {
+		return nil, failoverErr
 	}
 
 	// Detect SSE responses for ALL account types via Content-Type header.
