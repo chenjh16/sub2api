@@ -108,12 +108,20 @@ func classifyUpstreamTransportError(err error) upstreamTransportErrorClass {
 func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Context, c *gin.Context, account *Account, err error, passthrough bool) error {
 	safeErr := sanitizeUpstreamErrorMessage(err.Error())
 	setOpsUpstreamError(c, 0, safeErr, "")
+	accountID := int64(0)
+	accountName := ""
+	platform := PlatformOpenAI
+	if account != nil {
+		accountID = account.ID
+		accountName = account.Name
+		platform = account.Platform
+	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		ProxyID:            opsUpstreamProxyID(account),
 		ProxyName:          opsUpstreamProxyName(account),
-		Platform:           account.Platform,
-		AccountID:          account.ID,
-		AccountName:        account.Name,
+		Platform:           platform,
+		AccountID:          accountID,
+		AccountName:        accountName,
 		UpstreamStatusCode: 0,
 		Passthrough:        passthrough,
 		Kind:               "request_error",
@@ -139,6 +147,14 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 
 	if classifyUpstreamTransportError(err).Persistent {
 		s.tempUnscheduleOpenAITransportError(ctx, account, safeErr)
+		if s != nil {
+			s.openaiConsecutiveFailureCounters.Delete(openAIConsecutiveFailureKey{
+				accountID: accountID,
+				category:  openAIConsecutiveFailureCategoryTransport,
+			})
+		}
+	} else {
+		s.maybeBlockOpenAITransportFailure(ctx, account, safeErr)
 	}
 
 	return &UpstreamFailoverError{
