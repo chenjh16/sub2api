@@ -1911,6 +1911,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	// upstream created_at so a synthesized response.failed matches the stream.
 	var createdAtTracker responsesCreatedAtStamper
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
+	contentBlocker := s.newOpenAI200ContentBlockerDetector(ctx)
 	// pendingLines 在首个可见输出前保留前导事件，确保无输出失败仍可安全 failover。
 	pendingLines := make([]string, 0, 8)
 
@@ -2167,6 +2168,13 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				responseID = extractOpenAIResponseIDFromJSONBytes(dataBytes)
 			}
 			imageCounter.AddSSEData(dataBytes)
+			if matched, keyword := contentBlocker.ObservePayload(dataBytes); matched {
+				failoverErr := s.newOpenAI200ContentBlockerFailoverError(c, account, upstreamRequestID, keyword)
+				if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+					return resultWithUsage(), failoverErr
+				}
+				return resultWithUsage(), openAI200ContentBlockerMatchedAfterOutputError()
+			}
 			if sanitizedData, sanitized := sanitizeOpenAIResponseFailedEventForClient(
 				dataBytes,
 				eventType,
@@ -2323,6 +2331,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 		observeOpenAISSEBody(observer, string(body))
 	} else {
 		observer.ObserveOpenAI(body, strings.TrimSpace(gjson.GetBytes(body, "type").String()))
+	}
+	if failoverErr := s.checkOpenAI200ContentBlocker(ctx, c, account, resp.Header.Get("x-request-id"), body); failoverErr != nil {
+		return nil, failoverErr
 	}
 
 	// Detect SSE responses from upstream and convert to JSON.
