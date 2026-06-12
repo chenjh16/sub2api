@@ -136,7 +136,7 @@ type SettingService struct {
 	codexRestrictionPolicySF    singleflight.Group
 	gatewayFailoverPolicyCache  atomic.Value // *cachedGatewayFailoverPolicySettings
 	gatewayFailoverPolicySF     singleflight.Group
-	gatewayContentBlockerCache  atomic.Value // *cachedGatewayContentBlockerSettings
+	gatewayContentBlockerCache  atomic.Value // migration-only legacy cache
 	gatewayContentBlockerSF     singleflight.Group
 
 	cyberSessionBlockRuntimeMu    sync.Mutex
