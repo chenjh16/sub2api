@@ -247,29 +247,30 @@ func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool 
 	case 401, 402, 403, 429, 529:
 		return true
 	default:
-		return statusCode >= 500
+		return false
 	}
 }
 
 func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	return s.shouldFailoverOpenAIUpstreamResponseWithContext(context.Background(), nil, statusCode, nil, upstreamMsg, upstreamBody)
+}
+
+func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponseWithContext(
+	ctx context.Context,
+	account *Account,
+	statusCode int,
+	headers http.Header,
+	upstreamMsg string,
+	upstreamBody []byte,
+) bool {
 	if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
 		return false
 	}
 	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, upstreamBody) {
 		return true
 	}
-	if s.shouldFailoverUpstreamError(statusCode) {
-		return true
-	}
-	if s.isOpenAIStructured400FailoverEnabled(context.Background()) {
-		if isOpenAIUpstreamCooldownFailoverError(statusCode, upstreamBody) {
-			return true
-		}
-		if isOpenAIUpstreamRateLimitExceededFailoverError(statusCode, upstreamBody) {
-			return true
-		}
-	}
-	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
+	decision := s.decideOpenAIUpstreamHTTPFailover(ctx, account, statusCode, headers, upstreamMsg, upstreamBody)
+	return decision != nil && decision.Failover
 }
 
 // OpenAIRequestBodyTooLargeClientMessage is the fixed downstream message used

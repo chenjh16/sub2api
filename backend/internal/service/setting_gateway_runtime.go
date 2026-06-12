@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -157,14 +159,499 @@ const (
 	gatewayFailoverPolicyMaxWindowSeconds                = 3600
 	gatewayFailoverPolicyMinCooldownSeconds              = 1
 	gatewayFailoverPolicyMaxCooldownSeconds              = 7200
+	gatewayFailoverPolicyMaxRules                        = 50
+	gatewayFailoverPolicyMaxConditions                   = 50
+	gatewayFailoverPolicyMaxStringBytes                  = 512
 )
+
+func gatewayFailoverBoolPtr(v bool) *bool {
+	return &v
+}
+
+func defaultGatewayFailoverRulesFromLegacy(settings *GatewayFailoverPolicySettings) []GatewayFailoverRule {
+	if settings == nil {
+		settings = &GatewayFailoverPolicySettings{
+			Structured400Enabled:         true,
+			Structured400CooldownMinutes: 10,
+			FailureCooldownJitterPercent: 20,
+			HTTP5xxCooldownEnabled:       true,
+			HTTP5xxThreshold:             3,
+			HTTP5xxWindowSeconds:         30,
+			HTTP5xxCooldownSeconds:       120,
+			TransportCooldownEnabled:     true,
+			TransportThreshold:           3,
+			TransportWindowSeconds:       30,
+			TransportCooldownSeconds:     120,
+		}
+	}
+	structuredCooldownSeconds := settings.Structured400CooldownMinutes * 60
+	if structuredCooldownSeconds <= 0 {
+		structuredCooldownSeconds = 600
+	}
+	http5xxCooldownSeconds := settings.HTTP5xxCooldownSeconds
+	if http5xxCooldownSeconds <= 0 {
+		http5xxCooldownSeconds = 120
+	}
+	transportCooldownSeconds := settings.TransportCooldownSeconds
+	if transportCooldownSeconds <= 0 {
+		transportCooldownSeconds = 120
+	}
+	jitter := settings.FailureCooldownJitterPercent
+
+	return []GatewayFailoverRule{
+		{
+			ID:          "openai_structured_400_cooldown",
+			Name:        "结构化 400 冷却",
+			Description: "匹配 rate_limit_cooldown 或 limit_type=cooldown 的结构化 400 响应",
+			Enabled:     settings.Structured400Enabled,
+			Priority:    100,
+			Event:       GatewayFailoverRuleEventHTTPResponse,
+			Match: GatewayFailoverRuleMatch{
+				StatusCodes: []int{http.StatusBadRequest},
+				JSONLogic:   GatewayFailoverRuleLogicAny,
+				JSONConditions: []GatewayFailoverJSONCondition{
+					{Path: "error.code", Op: GatewayFailoverRuleOpEquals, Value: "rate_limit_cooldown"},
+					{Path: "code", Op: GatewayFailoverRuleOpEquals, Value: "rate_limit_cooldown"},
+					{Path: "limit_type", Op: GatewayFailoverRuleOpEquals, Value: "cooldown"},
+				},
+			},
+			Action: GatewayFailoverRuleAction{
+				Failover:        true,
+				CooldownScope:   GatewayFailoverCooldownScopeRuntime,
+				CooldownSeconds: structuredCooldownSeconds,
+				JitterPercent:   jitter,
+				Reason:          "rate_limit_cooldown",
+			},
+		},
+		{
+			ID:          "openai_structured_400_rpm",
+			Name:        "结构化 400 RPM 限流",
+			Description: "匹配 rate_limit_exceeded 且 limit_type=rpm 的结构化 400 响应",
+			Enabled:     settings.Structured400Enabled,
+			Priority:    110,
+			Event:       GatewayFailoverRuleEventHTTPResponse,
+			Match: GatewayFailoverRuleMatch{
+				StatusCodes: []int{http.StatusBadRequest},
+				JSONLogic:   GatewayFailoverRuleLogicAll,
+				JSONConditions: []GatewayFailoverJSONCondition{
+					{Paths: []string{"error.code", "code"}, Op: GatewayFailoverRuleOpEquals, Value: "rate_limit_exceeded"},
+					{Paths: []string{"limit_type", "error.limit_type"}, Op: GatewayFailoverRuleOpEquals, Value: "rpm"},
+				},
+			},
+			Action: GatewayFailoverRuleAction{
+				Failover:        true,
+				CooldownScope:   GatewayFailoverCooldownScopeRuntime,
+				CooldownSeconds: structuredCooldownSeconds,
+				JitterPercent:   jitter,
+				Reason:          "rate_limit_exceeded_rpm",
+			},
+		},
+		{
+			ID:          "openai_http_5xx_threshold",
+			Name:        "连续 HTTP 5xx",
+			Description: "OpenAI 上游连续 5xx 时自动 failover，并在达到阈值后短冷却",
+			Enabled:     settings.HTTP5xxCooldownEnabled,
+			Priority:    200,
+			Event:       GatewayFailoverRuleEventHTTPResponse,
+			Match: GatewayFailoverRuleMatch{
+				StatusRanges:       []GatewayFailoverStatusRange{{Min: 500, Max: 599}},
+				ExcludeStatusCodes: []int{529},
+				Consecutive: &GatewayFailoverConsecutiveCondition{
+					Enabled:       true,
+					Threshold:     settings.HTTP5xxThreshold,
+					WindowSeconds: settings.HTTP5xxWindowSeconds,
+				},
+			},
+			Action: GatewayFailoverRuleAction{
+				Failover:        true,
+				CooldownScope:   GatewayFailoverCooldownScopeRuntime,
+				CooldownSeconds: http5xxCooldownSeconds,
+				JitterPercent:   jitter,
+				Reason:          "http_5xx_threshold",
+			},
+		},
+		{
+			ID:          "openai_transport_threshold",
+			Name:        "连续瞬时网络错误",
+			Description: "OpenAI 上游连续超时、TLS 或网络错误时 failover，并在达到阈值后短冷却",
+			Enabled:     settings.TransportCooldownEnabled,
+			Priority:    300,
+			Event:       GatewayFailoverRuleEventTransportError,
+			Match: GatewayFailoverRuleMatch{
+				TransportPersistent: gatewayFailoverBoolPtr(false),
+				Consecutive: &GatewayFailoverConsecutiveCondition{
+					Enabled:       true,
+					Threshold:     settings.TransportThreshold,
+					WindowSeconds: settings.TransportWindowSeconds,
+				},
+			},
+			Action: GatewayFailoverRuleAction{
+				Failover:        true,
+				CooldownScope:   GatewayFailoverCooldownScopeRuntime,
+				CooldownSeconds: transportCooldownSeconds,
+				JitterPercent:   jitter,
+				Reason:          "transport_threshold",
+			},
+		},
+	}
+}
 
 func cloneGatewayFailoverPolicySettings(settings *GatewayFailoverPolicySettings) *GatewayFailoverPolicySettings {
 	if settings == nil {
 		return DefaultGatewayFailoverPolicySettings()
 	}
 	cloned := *settings
+	cloned.Rules = cloneGatewayFailoverRules(settings.Rules)
 	return &cloned
+}
+
+func cloneGatewayFailoverRules(rules []GatewayFailoverRule) []GatewayFailoverRule {
+	if rules == nil {
+		return nil
+	}
+	cloned := make([]GatewayFailoverRule, len(rules))
+	for i := range rules {
+		cloned[i] = rules[i]
+		cloned[i].Match.StatusCodes = append([]int(nil), rules[i].Match.StatusCodes...)
+		cloned[i].Match.StatusRanges = append([]GatewayFailoverStatusRange(nil), rules[i].Match.StatusRanges...)
+		cloned[i].Match.ExcludeStatusCodes = append([]int(nil), rules[i].Match.ExcludeStatusCodes...)
+		cloned[i].Match.JSONConditions = append([]GatewayFailoverJSONCondition(nil), rules[i].Match.JSONConditions...)
+		for j := range cloned[i].Match.JSONConditions {
+			cloned[i].Match.JSONConditions[j].Paths = append([]string(nil), rules[i].Match.JSONConditions[j].Paths...)
+			cloned[i].Match.JSONConditions[j].Values = append([]string(nil), rules[i].Match.JSONConditions[j].Values...)
+		}
+		cloned[i].Match.HeaderConditions = append([]GatewayFailoverHeaderCondition(nil), rules[i].Match.HeaderConditions...)
+		for j := range cloned[i].Match.HeaderConditions {
+			cloned[i].Match.HeaderConditions[j].Values = append([]string(nil), rules[i].Match.HeaderConditions[j].Values...)
+		}
+		cloned[i].Match.MessageConditions = cloneGatewayFailoverValueConditions(rules[i].Match.MessageConditions)
+		cloned[i].Match.BodyConditions = cloneGatewayFailoverValueConditions(rules[i].Match.BodyConditions)
+		cloned[i].Match.TransportConditions = cloneGatewayFailoverValueConditions(rules[i].Match.TransportConditions)
+		if rules[i].Match.TransportPersistent != nil {
+			v := *rules[i].Match.TransportPersistent
+			cloned[i].Match.TransportPersistent = &v
+		}
+		if rules[i].Match.Consecutive != nil {
+			v := *rules[i].Match.Consecutive
+			cloned[i].Match.Consecutive = &v
+		}
+	}
+	return cloned
+}
+
+func cloneGatewayFailoverValueConditions(conditions []GatewayFailoverValueCondition) []GatewayFailoverValueCondition {
+	cloned := append([]GatewayFailoverValueCondition(nil), conditions...)
+	for i := range cloned {
+		cloned[i].Values = append([]string(nil), conditions[i].Values...)
+	}
+	return cloned
+}
+
+func normalizeGatewayFailoverPolicyMatchMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "first":
+		return "first"
+	default:
+		return "first"
+	}
+}
+
+func normalizeGatewayFailoverRuleID(raw string, fallback string) string {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	var b strings.Builder
+	lastSep := false
+	for _, r := range raw {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			_ = b.WriteByte(byte(r))
+			lastSep = false
+		case r == '-' || r == '_' || r == ' ' || r == '.':
+			if !lastSep && b.Len() > 0 {
+				_ = b.WriteByte('_')
+				lastSep = true
+			}
+		}
+	}
+	id := strings.Trim(b.String(), "_")
+	if id == "" {
+		id = fallback
+	}
+	if id == "" {
+		id = "rule"
+	}
+	return id
+}
+
+func trimGatewayFailoverString(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if len([]byte(raw)) <= gatewayFailoverPolicyMaxStringBytes {
+		return raw
+	}
+	return strings.TrimSpace(string([]byte(raw)[:gatewayFailoverPolicyMaxStringBytes]))
+}
+
+func normalizeGatewayFailoverRuleLogic(raw string) string {
+	if strings.EqualFold(strings.TrimSpace(raw), GatewayFailoverRuleLogicAny) {
+		return GatewayFailoverRuleLogicAny
+	}
+	return GatewayFailoverRuleLogicAll
+}
+
+func normalizeGatewayFailoverRuleOp(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case GatewayFailoverRuleOpNotEquals:
+		return GatewayFailoverRuleOpNotEquals
+	case GatewayFailoverRuleOpContains:
+		return GatewayFailoverRuleOpContains
+	case GatewayFailoverRuleOpNotContains:
+		return GatewayFailoverRuleOpNotContains
+	case GatewayFailoverRuleOpExists:
+		return GatewayFailoverRuleOpExists
+	case GatewayFailoverRuleOpNotExists:
+		return GatewayFailoverRuleOpNotExists
+	case GatewayFailoverRuleOpIn:
+		return GatewayFailoverRuleOpIn
+	case GatewayFailoverRuleOpRegex:
+		return GatewayFailoverRuleOpRegex
+	default:
+		return GatewayFailoverRuleOpEquals
+	}
+}
+
+func normalizeGatewayFailoverCooldownScope(raw string, cooldownSeconds int) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case GatewayFailoverCooldownScopeRuntime:
+		return GatewayFailoverCooldownScopeRuntime
+	case GatewayFailoverCooldownScopeTempUnsched:
+		return GatewayFailoverCooldownScopeTempUnsched
+	case GatewayFailoverCooldownScopeNone:
+		return GatewayFailoverCooldownScopeNone
+	default:
+		if cooldownSeconds > 0 {
+			return GatewayFailoverCooldownScopeRuntime
+		}
+		return GatewayFailoverCooldownScopeNone
+	}
+}
+
+func normalizeGatewayFailoverValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, raw := range values {
+		if value := trimGatewayFailoverString(raw); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func normalizeGatewayFailoverValueCondition(condition GatewayFailoverValueCondition) GatewayFailoverValueCondition {
+	condition.Op = normalizeGatewayFailoverRuleOp(condition.Op)
+	condition.Value = trimGatewayFailoverString(condition.Value)
+	condition.Values = normalizeGatewayFailoverValues(condition.Values)
+	return condition
+}
+
+func normalizeGatewayFailoverJSONCondition(condition GatewayFailoverJSONCondition) GatewayFailoverJSONCondition {
+	condition.Path = trimGatewayFailoverString(condition.Path)
+	paths := make([]string, 0, len(condition.Paths))
+	seen := map[string]struct{}{}
+	if condition.Path != "" {
+		seen[condition.Path] = struct{}{}
+	}
+	for _, raw := range condition.Paths {
+		path := trimGatewayFailoverString(raw)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	condition.Paths = paths
+	condition.Op = normalizeGatewayFailoverRuleOp(condition.Op)
+	condition.Value = trimGatewayFailoverString(condition.Value)
+	condition.Values = normalizeGatewayFailoverValues(condition.Values)
+	return condition
+}
+
+func normalizeGatewayFailoverHeaderCondition(condition GatewayFailoverHeaderCondition) GatewayFailoverHeaderCondition {
+	condition.Name = trimGatewayFailoverString(condition.Name)
+	condition.Op = normalizeGatewayFailoverRuleOp(condition.Op)
+	condition.Value = trimGatewayFailoverString(condition.Value)
+	condition.Values = normalizeGatewayFailoverValues(condition.Values)
+	return condition
+}
+
+func hasGatewayFailoverHTTPMatch(match GatewayFailoverRuleMatch) bool {
+	return len(match.StatusCodes) > 0 || len(match.StatusRanges) > 0 ||
+		len(match.JSONConditions) > 0 || len(match.HeaderConditions) > 0 ||
+		len(match.MessageConditions) > 0 || len(match.BodyConditions) > 0
+}
+
+func normalizeGatewayFailoverRules(rules []GatewayFailoverRule, strict bool) ([]GatewayFailoverRule, error) {
+	if len(rules) > gatewayFailoverPolicyMaxRules {
+		if strict {
+			return nil, fmt.Errorf("rules must contain at most %d items", gatewayFailoverPolicyMaxRules)
+		}
+		rules = rules[:gatewayFailoverPolicyMaxRules]
+	}
+
+	normalized := make([]GatewayFailoverRule, 0, len(rules))
+	seenIDs := map[string]int{}
+	for i, raw := range rules {
+		rule := raw
+		rule.ID = normalizeGatewayFailoverRuleID(rule.ID, fmt.Sprintf("rule_%d", i+1))
+		if count := seenIDs[rule.ID]; count > 0 {
+			base := rule.ID
+			for {
+				count++
+				candidate := fmt.Sprintf("%s_%d", base, count)
+				if _, exists := seenIDs[candidate]; !exists {
+					rule.ID = candidate
+					break
+				}
+			}
+		}
+		seenIDs[rule.ID]++
+		rule.Name = trimGatewayFailoverString(rule.Name)
+		if rule.Name == "" {
+			rule.Name = rule.ID
+		}
+		rule.Description = trimGatewayFailoverString(rule.Description)
+		if strings.EqualFold(strings.TrimSpace(rule.Event), GatewayFailoverRuleEventTransportError) {
+			rule.Event = GatewayFailoverRuleEventTransportError
+		} else {
+			rule.Event = GatewayFailoverRuleEventHTTPResponse
+		}
+
+		match := rule.Match
+		match.JSONLogic = normalizeGatewayFailoverRuleLogic(match.JSONLogic)
+		match.HeaderLogic = normalizeGatewayFailoverRuleLogic(match.HeaderLogic)
+		statusCodes := make([]int, 0, len(match.StatusCodes))
+		for _, code := range match.StatusCodes {
+			if code >= 100 && code <= 599 {
+				statusCodes = append(statusCodes, code)
+			}
+		}
+		match.StatusCodes = statusCodes
+		excludeCodes := make([]int, 0, len(match.ExcludeStatusCodes))
+		for _, code := range match.ExcludeStatusCodes {
+			if code >= 100 && code <= 599 {
+				excludeCodes = append(excludeCodes, code)
+			}
+		}
+		match.ExcludeStatusCodes = excludeCodes
+		ranges := make([]GatewayFailoverStatusRange, 0, len(match.StatusRanges))
+		for _, item := range match.StatusRanges {
+			if item.Min >= 100 && item.Max <= 599 && item.Min <= item.Max {
+				ranges = append(ranges, item)
+			}
+		}
+		match.StatusRanges = ranges
+
+		if len(match.JSONConditions) > gatewayFailoverPolicyMaxConditions {
+			if strict {
+				return nil, fmt.Errorf("rule %s json_conditions must contain at most %d items", rule.ID, gatewayFailoverPolicyMaxConditions)
+			}
+			match.JSONConditions = match.JSONConditions[:gatewayFailoverPolicyMaxConditions]
+		}
+		jsonConditions := make([]GatewayFailoverJSONCondition, 0, len(match.JSONConditions))
+		for _, condition := range match.JSONConditions {
+			condition = normalizeGatewayFailoverJSONCondition(condition)
+			if condition.Path != "" || len(condition.Paths) > 0 {
+				jsonConditions = append(jsonConditions, condition)
+			}
+		}
+		match.JSONConditions = jsonConditions
+
+		if len(match.HeaderConditions) > gatewayFailoverPolicyMaxConditions {
+			if strict {
+				return nil, fmt.Errorf("rule %s header_conditions must contain at most %d items", rule.ID, gatewayFailoverPolicyMaxConditions)
+			}
+			match.HeaderConditions = match.HeaderConditions[:gatewayFailoverPolicyMaxConditions]
+		}
+		headerConditions := make([]GatewayFailoverHeaderCondition, 0, len(match.HeaderConditions))
+		for _, condition := range match.HeaderConditions {
+			condition = normalizeGatewayFailoverHeaderCondition(condition)
+			if condition.Name != "" {
+				headerConditions = append(headerConditions, condition)
+			}
+		}
+		match.HeaderConditions = headerConditions
+
+		normalizeValueConditions := func(name string, conditions []GatewayFailoverValueCondition) ([]GatewayFailoverValueCondition, error) {
+			if len(conditions) > gatewayFailoverPolicyMaxConditions {
+				if strict {
+					return nil, fmt.Errorf("rule %s %s must contain at most %d items", rule.ID, name, gatewayFailoverPolicyMaxConditions)
+				}
+				conditions = conditions[:gatewayFailoverPolicyMaxConditions]
+			}
+			out := make([]GatewayFailoverValueCondition, 0, len(conditions))
+			for _, condition := range conditions {
+				condition = normalizeGatewayFailoverValueCondition(condition)
+				if condition.Op == GatewayFailoverRuleOpExists || condition.Op == GatewayFailoverRuleOpNotExists || condition.Value != "" || len(condition.Values) > 0 {
+					out = append(out, condition)
+				}
+			}
+			return out, nil
+		}
+		var err error
+		if match.MessageConditions, err = normalizeValueConditions("message_conditions", match.MessageConditions); err != nil {
+			return nil, err
+		}
+		if match.BodyConditions, err = normalizeValueConditions("body_conditions", match.BodyConditions); err != nil {
+			return nil, err
+		}
+		if match.TransportConditions, err = normalizeValueConditions("transport_conditions", match.TransportConditions); err != nil {
+			return nil, err
+		}
+		if match.Consecutive != nil {
+			if match.Consecutive.Threshold < gatewayFailoverPolicyMinThreshold || match.Consecutive.Threshold > gatewayFailoverPolicyMaxThreshold {
+				if strict && rule.Enabled && match.Consecutive.Enabled {
+					return nil, fmt.Errorf("rule %s consecutive.threshold must be between %d-%d", rule.ID, gatewayFailoverPolicyMinThreshold, gatewayFailoverPolicyMaxThreshold)
+				}
+				match.Consecutive.Threshold = 3
+			}
+			if match.Consecutive.WindowSeconds < gatewayFailoverPolicyMinWindowSeconds || match.Consecutive.WindowSeconds > gatewayFailoverPolicyMaxWindowSeconds {
+				if strict && rule.Enabled && match.Consecutive.Enabled {
+					return nil, fmt.Errorf("rule %s consecutive.window_seconds must be between %d-%d", rule.ID, gatewayFailoverPolicyMinWindowSeconds, gatewayFailoverPolicyMaxWindowSeconds)
+				}
+				match.Consecutive.WindowSeconds = 30
+			}
+		}
+		if strict && rule.Enabled && rule.Event == GatewayFailoverRuleEventHTTPResponse && !hasGatewayFailoverHTTPMatch(match) {
+			return nil, fmt.Errorf("rule %s must define at least one HTTP match condition", rule.ID)
+		}
+		rule.Match = match
+
+		rule.Action.CooldownScope = normalizeGatewayFailoverCooldownScope(rule.Action.CooldownScope, rule.Action.CooldownSeconds)
+		if rule.Action.CooldownScope == GatewayFailoverCooldownScopeNone {
+			rule.Action.CooldownSeconds = 0
+		} else if rule.Action.CooldownSeconds < gatewayFailoverPolicyMinCooldownSeconds || rule.Action.CooldownSeconds > gatewayFailoverPolicyMaxCooldownSeconds {
+			if strict && rule.Enabled {
+				return nil, fmt.Errorf("rule %s action.cooldown_seconds must be between %d-%d", rule.ID, gatewayFailoverPolicyMinCooldownSeconds, gatewayFailoverPolicyMaxCooldownSeconds)
+			}
+			rule.Action.CooldownSeconds = 120
+		}
+		if rule.Action.JitterPercent < gatewayFailoverPolicyMinJitterPercent || rule.Action.JitterPercent > gatewayFailoverPolicyMaxJitterPercent {
+			if strict && rule.Enabled {
+				return nil, fmt.Errorf("rule %s action.jitter_percent must be between %d-%d", rule.ID, gatewayFailoverPolicyMinJitterPercent, gatewayFailoverPolicyMaxJitterPercent)
+			}
+			rule.Action.JitterPercent = 20
+		}
+		rule.Action.Reason = normalizeGatewayFailoverRuleID(rule.Action.Reason, rule.ID)
+		normalized = append(normalized, rule)
+	}
+
+	sort.SliceStable(normalized, func(i, j int) bool {
+		if normalized[i].Priority == normalized[j].Priority {
+			return normalized[i].ID < normalized[j].ID
+		}
+		return normalized[i].Priority < normalized[j].Priority
+	})
+	return normalized, nil
 }
 
 func normalizeGatewayFailoverPolicySettings(settings *GatewayFailoverPolicySettings, strict bool) (*GatewayFailoverPolicySettings, error) {
@@ -174,6 +661,7 @@ func normalizeGatewayFailoverPolicySettings(settings *GatewayFailoverPolicySetti
 
 	normalized := cloneGatewayFailoverPolicySettings(settings)
 	defaults := DefaultGatewayFailoverPolicySettings()
+	normalized.MatchMode = normalizeGatewayFailoverPolicyMatchMode(normalized.MatchMode)
 
 	if normalized.Structured400CooldownMinutes < gatewayFailoverPolicyMinStructured400CooldownMinutes ||
 		normalized.Structured400CooldownMinutes > gatewayFailoverPolicyMaxStructured400CooldownMinutes {
@@ -250,6 +738,15 @@ func normalizeGatewayFailoverPolicySettings(settings *GatewayFailoverPolicySetti
 		normalized.TransportCooldownSeconds = defaults.TransportCooldownSeconds
 	}
 
+	if len(normalized.Rules) == 0 {
+		normalized.Rules = defaultGatewayFailoverRulesFromLegacy(normalized)
+		return normalized, nil
+	}
+	rules, err := normalizeGatewayFailoverRules(normalized.Rules, strict)
+	if err != nil {
+		return nil, err
+	}
+	normalized.Rules = rules
 	return normalized, nil
 }
 

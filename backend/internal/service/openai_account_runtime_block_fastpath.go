@@ -66,22 +66,18 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		return false
 	}
 
-	if s.isOpenAIStructured400FailoverEnabled(ctx) && isOpenAIUpstreamCooldownFailoverError(statusCode, responseBody) {
-		if s != nil && account != nil {
-			s.BlockAccountScheduling(account, time.Now().Add(s.openAIStructured400CooldownDuration(ctx)), "rate_limit_cooldown")
-		}
-		return true
+	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(responseBody))
+	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+	event := openAIFailoverRuleEvent{
+		Event:           GatewayFailoverRuleEventHTTPResponse,
+		StatusCode:      statusCode,
+		Headers:         headers,
+		UpstreamMessage: upstreamMsg,
+		Body:            responseBody,
+		Account:         account,
 	}
-
-	if s.isOpenAIStructured400FailoverEnabled(ctx) && isOpenAIUpstreamRateLimitExceededFailoverError(statusCode, responseBody) {
-		if s != nil && account != nil {
-			s.BlockAccountScheduling(account, time.Now().Add(s.openAIStructured400CooldownDuration(ctx)), "rate_limit_exceeded_rpm")
-		}
-		return true
-	}
-
-	if s.maybeBlockOpenAIHTTP5xxFailure(ctx, account, statusCode) {
-		return true
+	if decision := s.decideOpenAIFailoverRule(ctx, event); decision != nil {
+		return s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
 	}
 
 	if s == nil || account == nil {

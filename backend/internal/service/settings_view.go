@@ -503,30 +503,120 @@ type RateLimit429CooldownSettings struct {
 	CooldownSeconds int `json:"cooldown_seconds"`
 }
 
+const (
+	GatewayFailoverRuleEventHTTPResponse   = "http_response"
+	GatewayFailoverRuleEventTransportError = "transport_error"
+
+	GatewayFailoverRuleLogicAll = "all"
+	GatewayFailoverRuleLogicAny = "any"
+
+	GatewayFailoverRuleOpEquals      = "equals"
+	GatewayFailoverRuleOpNotEquals   = "not_equals"
+	GatewayFailoverRuleOpContains    = "contains"
+	GatewayFailoverRuleOpNotContains = "not_contains"
+	GatewayFailoverRuleOpExists      = "exists"
+	GatewayFailoverRuleOpNotExists   = "not_exists"
+	GatewayFailoverRuleOpIn          = "in"
+	GatewayFailoverRuleOpRegex       = "regex"
+
+	GatewayFailoverCooldownScopeNone        = "none"
+	GatewayFailoverCooldownScopeRuntime     = "runtime"
+	GatewayFailoverCooldownScopeTempUnsched = "temp_unsched"
+)
+
+// GatewayFailoverStatusRange HTTP 状态码范围。
+type GatewayFailoverStatusRange struct {
+	Min int `json:"min"`
+	Max int `json:"max"`
+}
+
+// GatewayFailoverValueCondition 通用字符串条件。
+type GatewayFailoverValueCondition struct {
+	Op     string   `json:"op"`
+	Value  string   `json:"value,omitempty"`
+	Values []string `json:"values,omitempty"`
+}
+
+// GatewayFailoverJSONCondition JSON path 条件，Path 使用 gjson 语法。
+type GatewayFailoverJSONCondition struct {
+	Path   string   `json:"path"`
+	Paths  []string `json:"paths,omitempty"`
+	Op     string   `json:"op"`
+	Value  string   `json:"value,omitempty"`
+	Values []string `json:"values,omitempty"`
+}
+
+// GatewayFailoverHeaderCondition HTTP 响应头条件。
+type GatewayFailoverHeaderCondition struct {
+	Name   string   `json:"name"`
+	Op     string   `json:"op"`
+	Value  string   `json:"value,omitempty"`
+	Values []string `json:"values,omitempty"`
+}
+
+// GatewayFailoverConsecutiveCondition 连续失败窗口条件。
+type GatewayFailoverConsecutiveCondition struct {
+	Enabled       bool `json:"enabled"`
+	Threshold     int  `json:"threshold"`
+	WindowSeconds int  `json:"window_seconds"`
+}
+
+// GatewayFailoverRuleMatch 单条故障转移规则的匹配条件。
+type GatewayFailoverRuleMatch struct {
+	StatusCodes         []int                                `json:"status_codes,omitempty"`
+	StatusRanges        []GatewayFailoverStatusRange         `json:"status_ranges,omitempty"`
+	ExcludeStatusCodes  []int                                `json:"exclude_status_codes,omitempty"`
+	JSONLogic           string                               `json:"json_logic,omitempty"`
+	JSONConditions      []GatewayFailoverJSONCondition       `json:"json_conditions,omitempty"`
+	HeaderLogic         string                               `json:"header_logic,omitempty"`
+	HeaderConditions    []GatewayFailoverHeaderCondition     `json:"header_conditions,omitempty"`
+	MessageConditions   []GatewayFailoverValueCondition      `json:"message_conditions,omitempty"`
+	BodyConditions      []GatewayFailoverValueCondition      `json:"body_conditions,omitempty"`
+	TransportConditions []GatewayFailoverValueCondition      `json:"transport_conditions,omitempty"`
+	TransportPersistent *bool                                `json:"transport_persistent,omitempty"`
+	Consecutive         *GatewayFailoverConsecutiveCondition `json:"consecutive,omitempty"`
+}
+
+// GatewayFailoverRuleAction 单条故障转移规则命中后的动作。
+type GatewayFailoverRuleAction struct {
+	Failover        bool   `json:"failover"`
+	CooldownScope   string `json:"cooldown_scope"`
+	CooldownSeconds int    `json:"cooldown_seconds"`
+	JitterPercent   int    `json:"jitter_percent"`
+	Reason          string `json:"reason"`
+}
+
+// GatewayFailoverRule 网关自动故障转移规则。
+type GatewayFailoverRule struct {
+	ID          string                    `json:"id"`
+	Name        string                    `json:"name"`
+	Description string                    `json:"description,omitempty"`
+	Enabled     bool                      `json:"enabled"`
+	Priority    int                       `json:"priority"`
+	Event       string                    `json:"event"`
+	Match       GatewayFailoverRuleMatch  `json:"match"`
+	Action      GatewayFailoverRuleAction `json:"action"`
+}
+
 // GatewayFailoverPolicySettings 网关自动故障转移增强策略配置。
 type GatewayFailoverPolicySettings struct {
-	// Structured400Enabled 是否把结构化 400 限流/冷却错误视为可故障转移错误。
-	Structured400Enabled bool `json:"structured_400_enabled"`
-	// Structured400CooldownMinutes 结构化 400 命中后当前账号的运行时冷却时长。
-	Structured400CooldownMinutes int `json:"structured_400_cooldown_minutes"`
-	// FailureCooldownJitterPercent 连续失败短冷却的抖动百分比。
-	FailureCooldownJitterPercent int `json:"failure_cooldown_jitter_percent"`
-	// HTTP5xxCooldownEnabled 是否对连续 HTTP 5xx 失败启用短冷却。
-	HTTP5xxCooldownEnabled bool `json:"http_5xx_cooldown_enabled"`
-	// HTTP5xxThreshold 在窗口内达到多少次 HTTP 5xx 后触发短冷却。
-	HTTP5xxThreshold int `json:"http_5xx_threshold"`
-	// HTTP5xxWindowSeconds HTTP 5xx 连续失败统计窗口。
-	HTTP5xxWindowSeconds int `json:"http_5xx_window_seconds"`
-	// HTTP5xxCooldownSeconds HTTP 5xx 达阈值后的运行时冷却时长。
-	HTTP5xxCooldownSeconds int `json:"http_5xx_cooldown_seconds"`
-	// TransportCooldownEnabled 是否对连续瞬时网络/传输失败启用短冷却。
-	TransportCooldownEnabled bool `json:"transport_cooldown_enabled"`
-	// TransportThreshold 在窗口内达到多少次瞬时网络/传输失败后触发短冷却。
-	TransportThreshold int `json:"transport_threshold"`
-	// TransportWindowSeconds 瞬时网络/传输失败统计窗口。
-	TransportWindowSeconds int `json:"transport_window_seconds"`
-	// TransportCooldownSeconds 瞬时网络/传输失败达阈值后的运行时冷却时长。
-	TransportCooldownSeconds int `json:"transport_cooldown_seconds"`
+	// MatchMode 命中模式。当前支持 first，保留字段便于后续扩展为 all。
+	MatchMode string `json:"match_mode,omitempty"`
+	// Rules 管理员可编辑规则列表。为空时由旧字段自动转换为默认规则。
+	Rules []GatewayFailoverRule `json:"rules,omitempty"`
+
+	// 以下字段为旧版固定策略字段，仅用于兼容旧 DB/旧客户端。
+	Structured400Enabled         bool `json:"structured_400_enabled"`
+	Structured400CooldownMinutes int  `json:"structured_400_cooldown_minutes"`
+	FailureCooldownJitterPercent int  `json:"failure_cooldown_jitter_percent"`
+	HTTP5xxCooldownEnabled       bool `json:"http_5xx_cooldown_enabled"`
+	HTTP5xxThreshold             int  `json:"http_5xx_threshold"`
+	HTTP5xxWindowSeconds         int  `json:"http_5xx_window_seconds"`
+	HTTP5xxCooldownSeconds       int  `json:"http_5xx_cooldown_seconds"`
+	TransportCooldownEnabled     bool `json:"transport_cooldown_enabled"`
+	TransportThreshold           int  `json:"transport_threshold"`
+	TransportWindowSeconds       int  `json:"transport_window_seconds"`
+	TransportCooldownSeconds     int  `json:"transport_cooldown_seconds"`
 }
 
 // GatewayContentBlockerSettings 200 OK 响应内容关键词拦截配置
@@ -559,7 +649,8 @@ func DefaultRateLimit429CooldownSettings() *RateLimit429CooldownSettings {
 
 // DefaultGatewayFailoverPolicySettings 返回默认的故障转移增强策略配置。
 func DefaultGatewayFailoverPolicySettings() *GatewayFailoverPolicySettings {
-	return &GatewayFailoverPolicySettings{
+	settings := &GatewayFailoverPolicySettings{
+		MatchMode:                    "first",
 		Structured400Enabled:         true,
 		Structured400CooldownMinutes: 10,
 		FailureCooldownJitterPercent: 20,
@@ -572,6 +663,8 @@ func DefaultGatewayFailoverPolicySettings() *GatewayFailoverPolicySettings {
 		TransportWindowSeconds:       30,
 		TransportCooldownSeconds:     120,
 	}
+	settings.Rules = defaultGatewayFailoverRulesFromLegacy(settings)
+	return settings
 }
 
 // DefaultGatewayContentBlockerSettings 返回默认的 200 响应内容拦截配置（关闭，10分钟冷却）

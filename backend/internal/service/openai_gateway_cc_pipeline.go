@@ -88,7 +88,14 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	upstreamMsg string,
 	upstreamModel string,
 ) *UpstreamFailoverError {
-	shouldFailover := s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody)
+	shouldFailover := s.shouldFailoverOpenAIUpstreamResponseWithContext(
+		ctx,
+		account,
+		resp.StatusCode,
+		resp.Header,
+		upstreamMsg,
+		respBody,
+	)
 	if account != nil && account.Platform == PlatformGrok {
 		shouldFailover = s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody)
 	}

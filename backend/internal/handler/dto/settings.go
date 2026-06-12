@@ -396,6 +396,9 @@ type RateLimit429CooldownSettings struct {
 
 // GatewayFailoverPolicySettings 网关故障转移增强策略配置 DTO
 type GatewayFailoverPolicySettings struct {
+	MatchMode string                        `json:"match_mode,omitempty"`
+	Rules     []service.GatewayFailoverRule `json:"rules,omitempty"`
+
 	Structured400Enabled         bool `json:"structured_400_enabled"`
 	Structured400CooldownMinutes int  `json:"structured_400_cooldown_minutes"`
 	FailureCooldownJitterPercent int  `json:"failure_cooldown_jitter_percent"`
