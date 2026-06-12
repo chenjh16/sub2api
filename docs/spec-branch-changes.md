@@ -4,7 +4,7 @@
 
 - 基线：`main` / `e34ad2b1`
 - 功能分支：`spec` / 当前 HEAD
-- 对比范围：分组默认 `service_tier`、OpenAI 上游结构化错误 failover、自动故障转移策略、200 响应内容拦截，以及对应文档与测试。
+- 对比范围：分组默认 `service_tier`、OpenAI 上游结构化错误 failover、自动故障转移策略、200 内容公告文本规则，以及对应文档与测试。
 
 ## 总览
 
@@ -12,8 +12,8 @@
 
 1. 为 OpenAI 分组增加默认 `service_tier`，支持在分组级别自动给请求注入 `priority`、`flex` 等服务层级。
 2. 识别上游结构化限流/冷却错误，避免把此类错误原样返回给客户端，改为触发账号 failover 并临时暂停该账号调度。
-3. 在管理后台“网关服务”增加自动故障转移策略，支持配置结构化 `400`、连续 `5xx`、连续网络错误的短冷却。
-4. 在管理后台“网关服务”增加 200 响应内容关键词拦截，用于处理上游把维护、繁忙、换 Key 等文案伪装成成功响应的情况。
+3. 在管理后台“网关服务”增加自动故障转移策略，支持配置结构化 `400`、连续 `5xx`、连续网络错误短冷却，以及 200 成功响应里的公告文本拦截。
+4. 将原本独立的 200 响应内容关键词拦截并入自动故障转移规则，默认规则为 `openai_200_content_text`，可独立开关和编辑。
 
 这四项修改均优先遵循已有网关调度和 failover 机制，不新增独立调度器。
 
@@ -254,6 +254,7 @@ docs/openai-upstream-error-failover.md
 - 结构化 `400` 限流/冷却错误默认进入 failover，并对当前账号运行时冷却。
 - HTTP `5xx` 单次仍立即 failover；同一账号连续达到阈值后，运行时短冷却。
 - 瞬时网络/传输错误默认返回 `UpstreamFailoverError`；同一账号连续达到阈值后，运行时短冷却。
+- HTTP `200 OK` 中的维护、繁忙、公告文本可通过默认关闭的内容规则触发 failover。
 - 明确持久的代理认证、DNS、连接拒绝等错误仍沿用已有 DB 临时禁用逻辑。
 
 ### 配置入口
@@ -277,7 +278,7 @@ GET /api/v1/admin/settings/gateway-failover-policy
 PUT /api/v1/admin/settings/gateway-failover-policy
 ```
 
-当前实现已从固定字段升级为管理员可编辑规则列表。旧字段仍保留用于兼容；当 DB 中没有 `rules` 时，会按旧字段自动生成默认规则。
+当前实现已从固定字段升级为管理员可编辑规则列表，并直接使用新的条件组格式。`structured_400_*`、`http_5xx_*`、`transport_*` 等旧固定字段不再作为配置入口；当配置为空时，系统使用内置默认规则。
 
 主配置结构：
 
@@ -293,11 +294,13 @@ PUT /api/v1/admin/settings/gateway-failover-policy
       "event": "http_response",
       "match": {
         "status_codes": [400],
-        "json_logic": "all",
-        "json_conditions": [
-          { "paths": ["error.code", "code"], "op": "equals", "value": "rate_limit_exceeded" },
-          { "paths": ["limit_type", "error.limit_type"], "op": "equals", "value": "rpm" }
-        ]
+        "json_condition_group": {
+          "logic": "all",
+          "conditions": [
+            { "paths": ["error.code", "code"], "op": "equals", "value": "rate_limit_exceeded" },
+            { "paths": ["limit_type", "error.limit_type"], "op": "equals", "value": "rpm" }
+          ]
+        }
       },
       "action": {
         "failover": true,
@@ -319,36 +322,23 @@ PUT /api/v1/admin/settings/gateway-failover-policy
 | `openai_structured_400_rpm` | `http_response` | 110 | 识别 `rate_limit_exceeded + limit_type=rpm`，自动 failover，运行时冷却 10 分钟 |
 | `openai_http_5xx_threshold` | `http_response` | 200 | 普通 `5xx` 每次自动 failover，连续达到阈值后运行时短冷却 |
 | `openai_transport_threshold` | `transport_error` | 300 | 瞬时网络错误每次自动 failover，连续达到阈值后运行时短冷却 |
+| `openai_200_content_text` | `http_response` | 400 | 默认关闭；识别伪装成 `200 OK` 的维护、繁忙或公告文本，自动 failover，运行时冷却 10 分钟 |
 
 规则支持：
 
 - `event`: `http_response`、`transport_error`
 - HTTP 匹配：`status_codes`、`status_ranges`、`exclude_status_codes`
-- 结构化响应匹配：`json_conditions`，路径使用 `gjson` 语法，支持 `path` 或 `paths`
-- 响应头匹配：`header_conditions`
-- 文本匹配：`message_conditions`、`body_conditions`、`transport_conditions`
+- 结构化响应匹配：`json_condition_group`，路径使用 `gjson` 语法，支持 `path` 或 `paths`
+- 响应头匹配：`header_condition_group`
+- 文本匹配：`message_condition_group`、`body_condition_group`、`transport_condition_group`
 - 网络错误分类：`transport_persistent`
+- 内容扫描上限：`match.max_scan_bytes`，用于 200 内容规则，默认 `65536`
 - 连续失败窗口：`match.consecutive.enabled/threshold/window_seconds`
 - 动作：`action.failover`、`cooldown_scope`、`cooldown_seconds`、`jitter_percent`、`reason`
 - 条件操作符：`equals`、`not_equals`、`contains`、`not_contains`、`exists`、`not_exists`、`in`、`regex`
+- 每个条件组支持 `logic=all/any`、`conditions` 和递归 `groups`，可表达 `(A OR B) AND C`、`A OR (B AND C)` 等组合
 
 管理页提供可视化规则编辑和整份策略 JSON 编辑。每条默认规则都作为普通条目展示，可以独立开关、复制、删除或改优先级。
-
-兼容字段默认值：
-
-| 字段 | 默认值 | 范围 | 说明 |
-| --- | --- | --- | --- |
-| `structured_400_enabled` | `true` | true/false | 是否启用结构化 `400` 限流/冷却 failover |
-| `structured_400_cooldown_minutes` | `10` | 1-720 | 结构化 `400` 命中后当前账号运行时冷却时长 |
-| `failure_cooldown_jitter_percent` | `20` | 0-100 | 连续失败短冷却的随机抖动比例 |
-| `http_5xx_cooldown_enabled` | `true` | true/false | 是否对连续 HTTP `5xx` 启用短冷却 |
-| `http_5xx_threshold` | `3` | 1-20 | 窗口内多少次 `5xx` 后触发短冷却 |
-| `http_5xx_window_seconds` | `30` | 1-3600 | `5xx` 连续失败统计窗口 |
-| `http_5xx_cooldown_seconds` | `120` | 1-7200 | `5xx` 达阈值后的运行时冷却时长 |
-| `transport_cooldown_enabled` | `true` | true/false | 是否对连续瞬时网络/传输失败启用短冷却 |
-| `transport_threshold` | `3` | 1-20 | 窗口内多少次瞬时网络/传输失败后触发短冷却 |
-| `transport_window_seconds` | `30` | 1-3600 | 瞬时网络/传输失败统计窗口 |
-| `transport_cooldown_seconds` | `120` | 1-7200 | 瞬时网络/传输失败达阈值后的运行时冷却时长 |
 
 ### 实现细节
 
@@ -385,6 +375,7 @@ rate_limit_cooldown
 rate_limit_exceeded_rpm
 http_5xx_threshold
 transport_threshold
+content_blocker
 ```
 
 成功收到非错误 HTTP 响应后，网关会清除该账号的连续失败计数，避免把非连续故障累计成冷却。
@@ -412,11 +403,11 @@ transport_threshold
 - 已经向下游写出流式内容后，不能无痕切换账号。
 - `429`、`529`、鉴权错误、模型不存在等仍沿用既有持久状态处理。
 
-## 4. 200 响应内容关键词拦截
+## 4. 200 内容公告文本规则
 
 ### 背景
 
-还有一类上游不会返回 HTTP 错误，而是把维护、繁忙、换 Key、公告等内容伪装成成功响应。例如：
+还有一类上游不会返回 HTTP 错误，而是把维护、繁忙、换 Key、公告等内容伪装成 `200 OK` 成功响应。例如：
 
 ```text
 当前繁忙，休息十分钟，tg频道：https://t.me/UniverseFederation
@@ -430,46 +421,54 @@ transport_threshold
 
 如果这类内容出现在 HTTP 200 或 SSE 正常输出中，原有网关会认为模型调用成功，并把它当作模型文本发给下游 Agent。HTTP 状态码级 failover 无法覆盖这种情况。
 
-### 配置入口
+### 配置方式
 
-管理后台路径：
+该能力已经并入自动故障转移策略，不再有独立的“200 响应内容拦截”卡片、系统设置键或 Admin API。
 
-```text
-管理后台 -> 设置 -> 网关服务 -> 200 响应内容拦截
-```
-
-新增配置项：
-
-| 字段 | 默认值 | 范围 | 说明 |
-| --- | --- | --- | --- |
-| `enabled` | `false` | true/false | 是否启用内容拦截 |
-| `keywords` | `[]` | 最多 100 条 | 每行一个关键词，命中任意一条即拦截 |
-| `cooldown_minutes` | `10` | 1-720 | 命中后当前账号暂停调度时长 |
-| `max_scan_bytes` | `65536` | 1024-1048576 | 每个响应最多扫描的前缀字节数 |
-
-系统设置键：
+管理后台路径仍是：
 
 ```text
-gateway_content_blocker_settings
+管理后台 -> 设置 -> 网关服务 -> 自动故障转移策略
 ```
 
-Admin API：
-
-```http
-GET /api/v1/admin/settings/gateway-content-blocker
-PUT /api/v1/admin/settings/gateway-content-blocker
-```
-
-请求和响应结构：
+默认规则：
 
 ```json
 {
-  "enabled": true,
-  "keywords": ["当前繁忙，休息十分钟", "公益服务器压力很大", "站点维护中"],
-  "cooldown_minutes": 10,
-  "max_scan_bytes": 65536
+  "id": "openai_200_content_text",
+  "name": "200 内容公告文本",
+  "enabled": false,
+  "priority": 400,
+  "event": "http_response",
+  "match": {
+    "status_codes": [200],
+    "max_scan_bytes": 65536,
+    "message_condition_group": {
+      "logic": "any",
+      "conditions": [
+        { "op": "contains", "value": "当前繁忙，休息十分钟" },
+        { "op": "contains", "value": "公益服务器压力很大" },
+        { "op": "contains", "value": "api.ranmeng.icu 提示：站点维护中" }
+      ]
+    }
+  },
+  "action": {
+    "failover": true,
+    "cooldown_scope": "runtime",
+    "cooldown_seconds": 600,
+    "jitter_percent": 0,
+    "reason": "content_blocker"
+  }
 }
 ```
+
+管理员可以直接开启该规则，也可以复制后按上游特征自定义关键词、正则、冷却时间和优先级。若需要配置复杂逻辑，可用 `message_condition_group` 或 `body_condition_group` 的嵌套 `groups` 表达任意 AND/OR 组合。
+
+旧配置迁移：
+
+- 新迁移 `backend/migrations/152_migrate_gateway_content_blocker_to_failover_rule.sql` 会把旧 `gateway_content_blocker_settings` 转为 `openai_200_content_text` 规则。
+- 如果旧内容拦截已启用且有关键词，迁移会保留关键词、冷却分钟数和扫描上限。
+- 迁移后会删除旧 setting；运行时不再读取 `gateway_content_blocker_settings`。
 
 ### 匹配策略
 
@@ -481,9 +480,8 @@ backend/internal/service/openai_response_content_blocker.go
 
 主要行为：
 
-- 默认关闭，只有开启且关键词非空时才扫描。
-- 关键词保存时会 trim、去空、大小写折叠去重。
-- 运行时匹配为大小写不敏感匹配。
+- 默认规则关闭，只有管理员启用对应规则后才扫描。
+- 规则条件统一使用自动故障转移策略的操作符，`contains`、`regex`、`in` 等均可使用。
 - JSON 响应会优先提取常见文本字段：
   - `delta`
   - `text`
@@ -496,7 +494,7 @@ backend/internal/service/openai_response_content_blocker.go
   - `response.output[].content[].text`
 - SSE 响应会解析 `data:` payload 后扫描。
 - 流式响应支持跨 chunk 关键词匹配，例如第一段输出“站点”，第二段输出“维护中”，仍可命中“站点维护中”。
-- 扫描字节数受 `max_scan_bytes` 限制，避免大响应热路径开销失控。
+- 扫描字节数受 `match.max_scan_bytes` 限制，避免大响应热路径开销失控。
 
 ### 拦截和 failover 行为
 
@@ -513,7 +511,7 @@ backend/internal/service/openai_response_content_blocker.go
 4. Ops 上游错误事件记录通用信息：
 
    ```text
-   OpenAI upstream 200 response matched content blocker
+   OpenAI upstream 200 response matched failover policy: openai_200_content_text
    ```
 
 5. failover 响应体使用通用错误：
@@ -528,7 +526,7 @@ backend/internal/service/openai_response_content_blocker.go
    }
    ```
 
-为避免继续传播维护公告或广告文本，日志和下游响应都不包含命中的原始内容。
+为避免继续传播维护公告或广告文本，下游响应不包含命中的原始内容。
 
 ### 接入的 OpenAI 响应路径
 
@@ -552,7 +550,7 @@ backend/internal/service/openai_response_content_blocker.go
 
 如果关键词在下游已经收到部分内容后才命中，HTTP 200 和部分 SSE 内容已经提交，网关无法再无痕切换账号。此时只能中断或返回流错误，并记录该账号冷却。为降低这种情况出现概率，建议关键词选择会在维护公告开头出现的稳定片段。
 
-### 推荐关键词
+### 推荐规则条件
 
 建议配置稳定、足够长、不容易误伤正常模型输出的片段，例如：
 
@@ -572,6 +570,8 @@ TG
 
 过短关键词容易误伤正常业务文本。
 
+如果上游会换不同公告文案，可以把同类关键词放在同一个 `message_condition_group` 中使用 `logic=any`；如果需要限定来源，可额外配置 `header_condition_group` 或拆成更高优先级的独立规则。
+
 ### 测试覆盖
 
 新增测试文件：
@@ -582,20 +582,17 @@ backend/internal/service/openai_response_content_blocker_test.go
 
 覆盖内容：
 
-- 默认配置关闭。
-- 保存配置时关键词 trim、去重。
-- 开启状态下非法冷却时长和扫描字节数被拒绝。
+- 默认规则关闭。
 - JSON message / Chat Completions content 命中。
 - 流式分片文本跨 chunk 命中。
-- 关闭状态不会命中。
+- 命中后按规则 action 触发运行态冷却。
 
 ## 5. 前端与后台设置变更
 
-本分支前端修改集中在三处：
+本分支前端修改集中在两处：
 
 1. 分组管理页新增 OpenAI 默认 `service_tier` 下拉框。
-2. 设置页“网关服务”新增自动故障转移策略卡片。
-3. 设置页“网关服务”新增 200 响应内容拦截卡片。
+2. 设置页“网关服务”新增自动故障转移策略卡片，200 内容公告文本作为其中一条默认规则编辑。
 
 相关文件：
 
@@ -611,7 +608,7 @@ UI 风格沿用现有后台：
 - 使用既有 card 容器。
 - 使用 `Toggle` 作为开关。
 - 使用数字输入管理阈值、窗口、冷却和扫描上限。
-- 使用 textarea 管理每行一个关键词。
+- 使用 JSON 条件组 textarea 管理复杂匹配条件。
 - 保存失败使用既有 `extractApiErrorMessage` 提示。
 
 ## 6. 运维与验证
@@ -667,7 +664,7 @@ curl -fsS http://127.0.0.1:18080/health
 
 1. 需要执行数据库迁移，确保 `groups.openai_default_service_tier` 字段存在。
 2. 若使用嵌入前端，需要先执行前端构建，再使用 `-tags embed` 构建后端。
-3. 200 响应内容拦截默认关闭，部署后需要管理员在后台显式开启并配置关键词。
+3. 200 内容公告文本规则默认关闭，部署后需要管理员在自动故障转移策略中显式开启并配置条件。
 4. 对已有分组没有默认行为变化，除非管理员配置 `openai_default_service_tier`。
 
 ## 7. 回滚与降级
@@ -684,15 +681,15 @@ SET openai_default_service_tier = ''
 WHERE platform = 'openai';
 ```
 
-### 关闭 200 响应内容拦截
+### 关闭 200 内容公告文本规则
 
 后台进入：
 
 ```text
-设置 -> 网关服务 -> 200 响应内容拦截
+设置 -> 网关服务 -> 自动故障转移策略
 ```
 
-关闭开关即可。
+关闭或删除 `openai_200_content_text` 规则即可。
 
 ### 结构化限流/冷却 failover 与自动故障转移策略
 
@@ -702,12 +699,12 @@ WHERE platform = 'openai';
 设置 -> 网关服务 -> 自动故障转移策略
 ```
 
-可关闭 `structured_400_enabled`、`http_5xx_cooldown_enabled`、`transport_cooldown_enabled`。若确需彻底恢复旧行为，需要回滚 `isOpenAIUpstreamCooldownFailoverError`、`isOpenAIUpstreamRateLimitExceededFailoverError`、连续失败计数器和 transport error failover 的相关修改。
+可在“自动故障转移策略”中关闭或删除对应默认规则。若确需彻底恢复旧行为，需要回滚结构化错误 failover、连续失败计数器和 transport error failover 的相关修改。
 
 ## 8. 风险与边界
 
-- 200 内容拦截依赖管理员配置关键词。关键词过短可能误伤正常模型输出。
-- 内容拦截只扫描前 `max_scan_bytes` 字节，极晚出现的维护文本可能不会被拦截。
+- 200 内容规则依赖管理员配置关键词或正则。关键词过短可能误伤正常模型输出。
+- 200 内容规则只扫描前 `match.max_scan_bytes` 字节，极晚出现的维护文本可能不会被拦截。
 - 流式响应一旦已经向下游写出内容，就无法保证无痕切换账号。
 - 结构化限流/冷却识别只针对 JSON 字段，不根据自然语言 message 猜测。
 - 连续失败短冷却是进程内状态，多实例部署时各实例独立统计。
@@ -718,6 +715,7 @@ WHERE platform = 'openai';
 数据库与模型：
 
 - `backend/migrations/150_add_group_openai_default_service_tier.sql`
+- `backend/migrations/151_migrate_gateway_failover_condition_groups.sql`
 - `backend/ent/schema/group.go`
 - `backend/internal/service/group.go`
 

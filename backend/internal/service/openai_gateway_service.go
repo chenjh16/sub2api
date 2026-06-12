@@ -3878,7 +3878,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	failedMessage := ""
 	clientOutputStarted := false
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
-	contentBlocker := s.newOpenAI200ContentBlockerDetector(ctx)
+	contentBlocker := s.newOpenAI200ContentBlockerDetector(ctx, resp.Header)
 	pendingLines := make([]string, 0, 8)
 	writePendingLines := func() bool {
 		for _, pending := range pendingLines {
@@ -3959,8 +3959,8 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				responseID = extractOpenAIResponseIDFromJSONBytes(dataBytes)
 			}
 			imageCounter.AddSSEData(dataBytes)
-			if matched, keyword := contentBlocker.ObservePayload(dataBytes); matched {
-				failoverErr := s.newOpenAI200ContentBlockerFailoverError(c, account, upstreamRequestID, keyword)
+			if match := contentBlocker.ObservePayload(dataBytes); match != nil && match.decision.Failover {
+				failoverErr := s.newOpenAI200ContentBlockerFailoverError(ctx, c, account, upstreamRequestID, match)
 				if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
 					return resultWithUsage(), failoverErr
 				}
@@ -4057,7 +4057,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if err != nil {
 		return nil, err
 	}
-	if failoverErr := s.checkOpenAI200ContentBlocker(ctx, c, account, resp.Header.Get("x-request-id"), body); failoverErr != nil {
+	if failoverErr := s.checkOpenAI200ContentBlocker(ctx, c, account, resp.Header, resp.Header.Get("x-request-id"), body); failoverErr != nil {
 		return nil, failoverErr
 	}
 
@@ -4774,7 +4774,7 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 	failedMessage := ""
 	clientOutputStarted := false
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
-	contentBlocker := s.newOpenAI200ContentBlockerDetector(ctx)
+	contentBlocker := s.newOpenAI200ContentBlockerDetector(ctx, resp.Header)
 	var streamFailoverErr error
 	sendErrorEvent := func(reason string) {
 		if errorEventSent || clientDisconnected {
@@ -4925,8 +4925,8 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			if imageOutput, ok := extractImageGenerationOutputFromSSEData(dataBytes, streamSeenImages); ok {
 				streamImageOutputs = append(streamImageOutputs, imageOutput)
 			}
-			if matched, keyword := contentBlocker.ObservePayload(dataBytes); matched {
-				failoverErr := s.newOpenAI200ContentBlockerFailoverError(c, account, upstreamRequestID, keyword)
+			if match := contentBlocker.ObservePayload(dataBytes); match != nil && match.decision.Failover {
+				failoverErr := s.newOpenAI200ContentBlockerFailoverError(ctx, c, account, upstreamRequestID, match)
 				if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
 					streamFailoverErr = failoverErr
 				} else {
@@ -5329,7 +5329,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	if err != nil {
 		return nil, err
 	}
-	if failoverErr := s.checkOpenAI200ContentBlocker(ctx, c, account, resp.Header.Get("x-request-id"), body); failoverErr != nil {
+	if failoverErr := s.checkOpenAI200ContentBlocker(ctx, c, account, resp.Header, resp.Header.Get("x-request-id"), body); failoverErr != nil {
 		return nil, failoverErr
 	}
 

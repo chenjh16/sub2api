@@ -446,8 +446,6 @@ const (
 	SettingKeyOpenAIAllowClaudeCodeCodexPlugin = "openai_allow_claude_code_codex_plugin"
 	// SettingKeyGatewayFailoverPolicySettings 网关故障转移增强策略配置。
 	SettingKeyGatewayFailoverPolicySettings = "gateway_failover_policy_settings"
-	// SettingKeyGatewayContentBlockerSettings 200 OK 响应内容关键词拦截配置（默认关闭）。
-	SettingKeyGatewayContentBlockerSettings = "gateway_content_blocker_settings"
 
 	// 余额不足提醒
 	SettingKeyBalanceLowNotifyEnabled     = "balance_low_notify_enabled"      // 全局开关

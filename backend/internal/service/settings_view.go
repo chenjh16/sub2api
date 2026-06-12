@@ -517,6 +517,27 @@ type GatewayFailoverHeaderCondition struct {
 	Values []string `json:"values,omitempty"`
 }
 
+// GatewayFailoverJSONConditionGroup JSON 条件组，支持嵌套 all/any。
+type GatewayFailoverJSONConditionGroup struct {
+	Logic      string                              `json:"logic"`
+	Conditions []GatewayFailoverJSONCondition      `json:"conditions,omitempty"`
+	Groups     []GatewayFailoverJSONConditionGroup `json:"groups,omitempty"`
+}
+
+// GatewayFailoverHeaderConditionGroup Header 条件组，支持嵌套 all/any。
+type GatewayFailoverHeaderConditionGroup struct {
+	Logic      string                                `json:"logic"`
+	Conditions []GatewayFailoverHeaderCondition      `json:"conditions,omitempty"`
+	Groups     []GatewayFailoverHeaderConditionGroup `json:"groups,omitempty"`
+}
+
+// GatewayFailoverValueConditionGroup 通用文本条件组，支持嵌套 all/any。
+type GatewayFailoverValueConditionGroup struct {
+	Logic      string                               `json:"logic"`
+	Conditions []GatewayFailoverValueCondition      `json:"conditions,omitempty"`
+	Groups     []GatewayFailoverValueConditionGroup `json:"groups,omitempty"`
+}
+
 // GatewayFailoverConsecutiveCondition 连续失败窗口条件。
 type GatewayFailoverConsecutiveCondition struct {
 	Enabled       bool `json:"enabled"`
@@ -526,18 +547,17 @@ type GatewayFailoverConsecutiveCondition struct {
 
 // GatewayFailoverRuleMatch 单条故障转移规则的匹配条件。
 type GatewayFailoverRuleMatch struct {
-	StatusCodes         []int                                `json:"status_codes,omitempty"`
-	StatusRanges        []GatewayFailoverStatusRange         `json:"status_ranges,omitempty"`
-	ExcludeStatusCodes  []int                                `json:"exclude_status_codes,omitempty"`
-	JSONLogic           string                               `json:"json_logic,omitempty"`
-	JSONConditions      []GatewayFailoverJSONCondition       `json:"json_conditions,omitempty"`
-	HeaderLogic         string                               `json:"header_logic,omitempty"`
-	HeaderConditions    []GatewayFailoverHeaderCondition     `json:"header_conditions,omitempty"`
-	MessageConditions   []GatewayFailoverValueCondition      `json:"message_conditions,omitempty"`
-	BodyConditions      []GatewayFailoverValueCondition      `json:"body_conditions,omitempty"`
-	TransportConditions []GatewayFailoverValueCondition      `json:"transport_conditions,omitempty"`
-	TransportPersistent *bool                                `json:"transport_persistent,omitempty"`
-	Consecutive         *GatewayFailoverConsecutiveCondition `json:"consecutive,omitempty"`
+	StatusCodes             []int                                `json:"status_codes,omitempty"`
+	StatusRanges            []GatewayFailoverStatusRange         `json:"status_ranges,omitempty"`
+	ExcludeStatusCodes      []int                                `json:"exclude_status_codes,omitempty"`
+	MaxScanBytes            int                                  `json:"max_scan_bytes,omitempty"`
+	JSONConditionGroup      *GatewayFailoverJSONConditionGroup   `json:"json_condition_group,omitempty"`
+	HeaderConditionGroup    *GatewayFailoverHeaderConditionGroup `json:"header_condition_group,omitempty"`
+	MessageConditionGroup   *GatewayFailoverValueConditionGroup  `json:"message_condition_group,omitempty"`
+	BodyConditionGroup      *GatewayFailoverValueConditionGroup  `json:"body_condition_group,omitempty"`
+	TransportConditionGroup *GatewayFailoverValueConditionGroup  `json:"transport_condition_group,omitempty"`
+	TransportPersistent     *bool                                `json:"transport_persistent,omitempty"`
+	Consecutive             *GatewayFailoverConsecutiveCondition `json:"consecutive,omitempty"`
 }
 
 // GatewayFailoverRuleAction 单条故障转移规则命中后的动作。
@@ -565,33 +585,8 @@ type GatewayFailoverRule struct {
 type GatewayFailoverPolicySettings struct {
 	// MatchMode 命中模式。当前支持 first，保留字段便于后续扩展为 all。
 	MatchMode string `json:"match_mode,omitempty"`
-	// Rules 管理员可编辑规则列表。为空时由旧字段自动转换为默认规则。
+	// Rules 管理员可编辑规则列表。为空时使用系统默认规则。
 	Rules []GatewayFailoverRule `json:"rules,omitempty"`
-
-	// 以下字段为旧版固定策略字段，仅用于兼容旧 DB/旧客户端。
-	Structured400Enabled         bool `json:"structured_400_enabled"`
-	Structured400CooldownMinutes int  `json:"structured_400_cooldown_minutes"`
-	FailureCooldownJitterPercent int  `json:"failure_cooldown_jitter_percent"`
-	HTTP5xxCooldownEnabled       bool `json:"http_5xx_cooldown_enabled"`
-	HTTP5xxThreshold             int  `json:"http_5xx_threshold"`
-	HTTP5xxWindowSeconds         int  `json:"http_5xx_window_seconds"`
-	HTTP5xxCooldownSeconds       int  `json:"http_5xx_cooldown_seconds"`
-	TransportCooldownEnabled     bool `json:"transport_cooldown_enabled"`
-	TransportThreshold           int  `json:"transport_threshold"`
-	TransportWindowSeconds       int  `json:"transport_window_seconds"`
-	TransportCooldownSeconds     int  `json:"transport_cooldown_seconds"`
-}
-
-// GatewayContentBlockerSettings 200 OK 响应内容关键词拦截配置
-type GatewayContentBlockerSettings struct {
-	// Enabled 是否启用 200 响应内容关键词拦截
-	Enabled bool `json:"enabled"`
-	// Keywords 命中任一关键词即认为该 200 响应需要 failover
-	Keywords []string `json:"keywords"`
-	// CooldownMinutes 命中后当前账号暂停调度时长（分钟）
-	CooldownMinutes int `json:"cooldown_minutes"`
-	// MaxScanBytes 每个响应最多扫描的字节数，避免大响应热路径成本失控
-	MaxScanBytes int `json:"max_scan_bytes"`
 }
 
 // DefaultOverloadCooldownSettings 返回默认的过载冷却配置（启用，10分钟）
@@ -612,31 +607,9 @@ func DefaultRateLimit429CooldownSettings() *RateLimit429CooldownSettings {
 
 // DefaultGatewayFailoverPolicySettings 返回默认的故障转移增强策略配置。
 func DefaultGatewayFailoverPolicySettings() *GatewayFailoverPolicySettings {
-	settings := &GatewayFailoverPolicySettings{
-		MatchMode:                    "first",
-		Structured400Enabled:         true,
-		Structured400CooldownMinutes: 10,
-		FailureCooldownJitterPercent: 20,
-		HTTP5xxCooldownEnabled:       true,
-		HTTP5xxThreshold:             3,
-		HTTP5xxWindowSeconds:         30,
-		HTTP5xxCooldownSeconds:       120,
-		TransportCooldownEnabled:     true,
-		TransportThreshold:           3,
-		TransportWindowSeconds:       30,
-		TransportCooldownSeconds:     120,
-	}
-	settings.Rules = defaultGatewayFailoverRulesFromLegacy(settings)
-	return settings
-}
-
-// DefaultGatewayContentBlockerSettings 返回默认的 200 响应内容拦截配置（关闭，10分钟冷却）
-func DefaultGatewayContentBlockerSettings() *GatewayContentBlockerSettings {
-	return &GatewayContentBlockerSettings{
-		Enabled:         false,
-		Keywords:        []string{},
-		CooldownMinutes: 10,
-		MaxScanBytes:    65536,
+	return &GatewayFailoverPolicySettings{
+		MatchMode: "first",
+		Rules:     defaultGatewayFailoverRules(),
 	}
 }
 

@@ -1172,6 +1172,19 @@ export interface GatewayFailoverHeaderCondition extends GatewayFailoverValueCond
   name: string;
 }
 
+export interface GatewayFailoverConditionGroup<TCondition> {
+  logic: GatewayFailoverRuleLogic | string;
+  conditions?: TCondition[];
+  groups?: GatewayFailoverConditionGroup<TCondition>[];
+}
+
+export type GatewayFailoverJSONConditionGroup =
+  GatewayFailoverConditionGroup<GatewayFailoverJSONCondition>;
+export type GatewayFailoverHeaderConditionGroup =
+  GatewayFailoverConditionGroup<GatewayFailoverHeaderCondition>;
+export type GatewayFailoverValueConditionGroup =
+  GatewayFailoverConditionGroup<GatewayFailoverValueCondition>;
+
 export interface GatewayFailoverConsecutiveCondition {
   enabled: boolean;
   threshold: number;
@@ -1182,13 +1195,12 @@ export interface GatewayFailoverRuleMatch {
   status_codes?: number[];
   status_ranges?: GatewayFailoverStatusRange[];
   exclude_status_codes?: number[];
-  json_logic?: GatewayFailoverRuleLogic | string;
-  json_conditions?: GatewayFailoverJSONCondition[];
-  header_logic?: GatewayFailoverRuleLogic | string;
-  header_conditions?: GatewayFailoverHeaderCondition[];
-  message_conditions?: GatewayFailoverValueCondition[];
-  body_conditions?: GatewayFailoverValueCondition[];
-  transport_conditions?: GatewayFailoverValueCondition[];
+  max_scan_bytes?: number;
+  json_condition_group?: GatewayFailoverJSONConditionGroup;
+  header_condition_group?: GatewayFailoverHeaderConditionGroup;
+  message_condition_group?: GatewayFailoverValueConditionGroup;
+  body_condition_group?: GatewayFailoverValueConditionGroup;
+  transport_condition_group?: GatewayFailoverValueConditionGroup;
   transport_persistent?: boolean;
   consecutive?: GatewayFailoverConsecutiveCondition;
 }
@@ -1215,17 +1227,6 @@ export interface GatewayFailoverRule {
 export interface GatewayFailoverPolicySettings {
   match_mode?: string;
   rules?: GatewayFailoverRule[];
-  structured_400_enabled: boolean;
-  structured_400_cooldown_minutes: number;
-  failure_cooldown_jitter_percent: number;
-  http_5xx_cooldown_enabled: boolean;
-  http_5xx_threshold: number;
-  http_5xx_window_seconds: number;
-  http_5xx_cooldown_seconds: number;
-  transport_cooldown_enabled: boolean;
-  transport_threshold: number;
-  transport_window_seconds: number;
-  transport_cooldown_seconds: number;
 }
 
 export async function getGatewayFailoverPolicySettings(): Promise<GatewayFailoverPolicySettings> {
@@ -1240,32 +1241,6 @@ export async function updateGatewayFailoverPolicySettings(
 ): Promise<GatewayFailoverPolicySettings> {
   const { data } = await apiClient.put<GatewayFailoverPolicySettings>(
     "/admin/settings/gateway-failover-policy",
-    settings,
-  );
-  return data;
-}
-
-// ==================== Gateway Content Blocker Settings ====================
-
-export interface GatewayContentBlockerSettings {
-  enabled: boolean;
-  keywords: string[];
-  cooldown_minutes: number;
-  max_scan_bytes: number;
-}
-
-export async function getGatewayContentBlockerSettings(): Promise<GatewayContentBlockerSettings> {
-  const { data } = await apiClient.get<GatewayContentBlockerSettings>(
-    "/admin/settings/gateway-content-blocker",
-  );
-  return data;
-}
-
-export async function updateGatewayContentBlockerSettings(
-  settings: GatewayContentBlockerSettings,
-): Promise<GatewayContentBlockerSettings> {
-  const { data } = await apiClient.put<GatewayContentBlockerSettings>(
-    "/admin/settings/gateway-content-blocker",
     settings,
   );
   return data;
@@ -1499,8 +1474,6 @@ export const settingsAPI = {
   updateRateLimit429CooldownSettings,
   getGatewayFailoverPolicySettings,
   updateGatewayFailoverPolicySettings,
-  getGatewayContentBlockerSettings,
-  updateGatewayContentBlockerSettings,
   getStreamTimeoutSettings,
   updateStreamTimeoutSettings,
   getRectifierSettings,

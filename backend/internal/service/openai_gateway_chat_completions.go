@@ -448,7 +448,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 
 	chatResp := apicompat.ResponsesToChatCompletions(finalResponse, originalModel)
 	if payload, marshalErr := json.Marshal(chatResp); marshalErr == nil {
-		if failoverErr := s.checkOpenAI200ContentBlocker(c.Request.Context(), c, account, requestID, payload); failoverErr != nil {
+		if failoverErr := s.checkOpenAI200ContentBlocker(c.Request.Context(), c, account, resp.Header, requestID, payload); failoverErr != nil {
 			return nil, failoverErr
 		}
 	}
@@ -518,7 +518,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	pendingSSE := make([]string, 0, 4)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
 	var streamFailoverErr *UpstreamFailoverError
-	contentBlocker := s.newOpenAI200ContentBlockerDetector(c.Request.Context())
+	contentBlocker := s.newOpenAI200ContentBlockerDetector(c.Request.Context(), resp.Header)
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -618,8 +618,8 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				return true
 			}
 		}
-		if matched, keyword := contentBlocker.ObservePayload([]byte(payload)); matched {
-			failoverErr := s.newOpenAI200ContentBlockerFailoverError(c, account, requestID, keyword)
+		if match := contentBlocker.ObservePayload([]byte(payload)); match != nil && match.decision.Failover {
+			failoverErr := s.newOpenAI200ContentBlockerFailoverError(c.Request.Context(), c, account, requestID, match)
 			if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
 				streamFailoverErr = failoverErr
 			} else {
