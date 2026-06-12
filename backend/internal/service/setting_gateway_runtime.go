@@ -161,7 +161,18 @@ const (
 	gatewayFailoverPolicyMaxCooldownSeconds              = 7200
 	gatewayFailoverPolicyMaxRules                        = 50
 	gatewayFailoverPolicyMaxConditions                   = 50
+	gatewayFailoverPolicyMaxConditionGroupDepth          = 8
+	gatewayFailoverPolicyMinScanBytes                    = 1024
+	gatewayFailoverPolicyMaxScanBytes                    = 1024 * 1024
+	gatewayFailoverPolicyDefaultScanBytes                = 65536
 	gatewayFailoverPolicyMaxStringBytes                  = 512
+	gatewayFailoverPolicyDefaultJitterPercent            = 20
+	gatewayFailoverPolicyDefaultHTTP5xxThreshold         = 3
+	gatewayFailoverPolicyDefaultHTTP5xxWindowSeconds     = 30
+	gatewayFailoverPolicyDefaultHTTP5xxCooldownSecond    = 120
+	gatewayFailoverPolicyDefaultTransportThreshold       = 3
+	gatewayFailoverPolicyDefaultTransportWindowSecond    = 30
+	gatewayFailoverPolicyDefaultTransportCooldownSec     = 120
 )
 
 func gatewayFailoverBoolPtr(v bool) *bool {
@@ -296,6 +307,98 @@ func defaultGatewayFailoverRulesFromLegacy(settings *GatewayFailoverPolicySettin
 	}
 }
 
+func defaultGatewayFailoverRules() []GatewayFailoverRule {
+	settings := &GatewayFailoverPolicySettings{
+		Structured400Enabled:         true,
+		Structured400CooldownMinutes: 10,
+		FailureCooldownJitterPercent: 20,
+		HTTP5xxCooldownEnabled:       true,
+		HTTP5xxThreshold:             3,
+		HTTP5xxWindowSeconds:         30,
+		HTTP5xxCooldownSeconds:       120,
+		TransportCooldownEnabled:     true,
+		TransportThreshold:           3,
+		TransportWindowSeconds:       30,
+		TransportCooldownSeconds:     120,
+	}
+	rules := defaultGatewayFailoverRulesFromLegacy(settings)
+	for i := range rules {
+		match := &rules[i].Match
+		if len(match.JSONConditions) > 0 {
+			match.JSONConditionGroup = &GatewayFailoverJSONConditionGroup{
+				Logic:      normalizeGatewayFailoverRuleLogic(match.JSONLogic),
+				Conditions: append([]GatewayFailoverJSONCondition(nil), match.JSONConditions...),
+			}
+		}
+		if len(match.HeaderConditions) > 0 {
+			match.HeaderConditionGroup = &GatewayFailoverHeaderConditionGroup{
+				Logic:      normalizeGatewayFailoverRuleLogic(match.HeaderLogic),
+				Conditions: append([]GatewayFailoverHeaderCondition(nil), match.HeaderConditions...),
+			}
+		}
+		if len(match.MessageConditions) > 0 {
+			match.MessageConditionGroup = &GatewayFailoverValueConditionGroup{
+				Logic:      GatewayFailoverRuleLogicAll,
+				Conditions: cloneGatewayFailoverValueConditions(match.MessageConditions),
+			}
+		}
+		if len(match.BodyConditions) > 0 {
+			match.BodyConditionGroup = &GatewayFailoverValueConditionGroup{
+				Logic:      GatewayFailoverRuleLogicAll,
+				Conditions: cloneGatewayFailoverValueConditions(match.BodyConditions),
+			}
+		}
+		if len(match.TransportConditions) > 0 {
+			match.TransportConditionGroup = &GatewayFailoverValueConditionGroup{
+				Logic:      GatewayFailoverRuleLogicAll,
+				Conditions: cloneGatewayFailoverValueConditions(match.TransportConditions),
+			}
+		}
+		clearGatewayFailoverFlatConditions(match)
+	}
+	rules = append(rules, GatewayFailoverRule{
+		ID:          "openai_200_content_text",
+		Name:        "200 内容公告文本",
+		Description: "识别伪装成 200 成功响应的维护、繁忙或公告文本",
+		Enabled:     false,
+		Priority:    400,
+		Event:       GatewayFailoverRuleEventHTTPResponse,
+		Match: GatewayFailoverRuleMatch{
+			StatusCodes:  []int{http.StatusOK},
+			MaxScanBytes: gatewayFailoverPolicyDefaultScanBytes,
+			MessageConditionGroup: &GatewayFailoverValueConditionGroup{
+				Logic: GatewayFailoverRuleLogicAny,
+				Conditions: []GatewayFailoverValueCondition{
+					{Op: GatewayFailoverRuleOpContains, Value: "当前繁忙，休息十分钟"},
+					{Op: GatewayFailoverRuleOpContains, Value: "公益服务器压力很大"},
+					{Op: GatewayFailoverRuleOpContains, Value: "api.ranmeng.icu 提示：站点维护中"},
+				},
+			},
+		},
+		Action: GatewayFailoverRuleAction{
+			Failover:        true,
+			CooldownScope:   GatewayFailoverCooldownScopeRuntime,
+			CooldownSeconds: int(openAIUpstreamCooldownFallback / time.Second),
+			JitterPercent:   0,
+			Reason:          "content_blocker",
+		},
+	})
+	return rules
+}
+
+func clearGatewayFailoverFlatConditions(match *GatewayFailoverRuleMatch) {
+	if match == nil {
+		return
+	}
+	match.JSONLogic = ""
+	match.JSONConditions = nil
+	match.HeaderLogic = ""
+	match.HeaderConditions = nil
+	match.MessageConditions = nil
+	match.BodyConditions = nil
+	match.TransportConditions = nil
+}
+
 func cloneGatewayFailoverPolicySettings(settings *GatewayFailoverPolicySettings) *GatewayFailoverPolicySettings {
 	if settings == nil {
 		return DefaultGatewayFailoverPolicySettings()
@@ -327,6 +430,11 @@ func cloneGatewayFailoverRules(rules []GatewayFailoverRule) []GatewayFailoverRul
 		cloned[i].Match.MessageConditions = cloneGatewayFailoverValueConditions(rules[i].Match.MessageConditions)
 		cloned[i].Match.BodyConditions = cloneGatewayFailoverValueConditions(rules[i].Match.BodyConditions)
 		cloned[i].Match.TransportConditions = cloneGatewayFailoverValueConditions(rules[i].Match.TransportConditions)
+		cloned[i].Match.JSONConditionGroup = cloneGatewayFailoverJSONConditionGroup(rules[i].Match.JSONConditionGroup)
+		cloned[i].Match.HeaderConditionGroup = cloneGatewayFailoverHeaderConditionGroup(rules[i].Match.HeaderConditionGroup)
+		cloned[i].Match.MessageConditionGroup = cloneGatewayFailoverValueConditionGroup(rules[i].Match.MessageConditionGroup)
+		cloned[i].Match.BodyConditionGroup = cloneGatewayFailoverValueConditionGroup(rules[i].Match.BodyConditionGroup)
+		cloned[i].Match.TransportConditionGroup = cloneGatewayFailoverValueConditionGroup(rules[i].Match.TransportConditionGroup)
 		if rules[i].Match.TransportPersistent != nil {
 			v := *rules[i].Match.TransportPersistent
 			cloned[i].Match.TransportPersistent = &v
@@ -343,6 +451,67 @@ func cloneGatewayFailoverValueConditions(conditions []GatewayFailoverValueCondit
 	cloned := append([]GatewayFailoverValueCondition(nil), conditions...)
 	for i := range cloned {
 		cloned[i].Values = append([]string(nil), conditions[i].Values...)
+	}
+	return cloned
+}
+
+func cloneGatewayFailoverJSONConditionGroup(group *GatewayFailoverJSONConditionGroup) *GatewayFailoverJSONConditionGroup {
+	if group == nil {
+		return nil
+	}
+	cloned := &GatewayFailoverJSONConditionGroup{
+		Logic:      group.Logic,
+		Conditions: append([]GatewayFailoverJSONCondition(nil), group.Conditions...),
+		Groups:     make([]GatewayFailoverJSONConditionGroup, len(group.Groups)),
+	}
+	for i := range cloned.Conditions {
+		cloned.Conditions[i].Paths = append([]string(nil), group.Conditions[i].Paths...)
+		cloned.Conditions[i].Values = append([]string(nil), group.Conditions[i].Values...)
+	}
+	for i := range group.Groups {
+		nested := cloneGatewayFailoverJSONConditionGroup(&group.Groups[i])
+		if nested != nil {
+			cloned.Groups[i] = *nested
+		}
+	}
+	return cloned
+}
+
+func cloneGatewayFailoverHeaderConditionGroup(group *GatewayFailoverHeaderConditionGroup) *GatewayFailoverHeaderConditionGroup {
+	if group == nil {
+		return nil
+	}
+	cloned := &GatewayFailoverHeaderConditionGroup{
+		Logic:      group.Logic,
+		Conditions: append([]GatewayFailoverHeaderCondition(nil), group.Conditions...),
+		Groups:     make([]GatewayFailoverHeaderConditionGroup, len(group.Groups)),
+	}
+	for i := range cloned.Conditions {
+		cloned.Conditions[i].Values = append([]string(nil), group.Conditions[i].Values...)
+	}
+	for i := range group.Groups {
+		nested := cloneGatewayFailoverHeaderConditionGroup(&group.Groups[i])
+		if nested != nil {
+			cloned.Groups[i] = *nested
+		}
+	}
+	return cloned
+}
+
+func cloneGatewayFailoverValueConditionGroup(group *GatewayFailoverValueConditionGroup) *GatewayFailoverValueConditionGroup {
+	if group == nil {
+		return nil
+	}
+	cloned := &GatewayFailoverValueConditionGroup{
+		Logic:      group.Logic,
+		Conditions: cloneGatewayFailoverValueConditions(group.Conditions),
+		Groups:     make([]GatewayFailoverValueConditionGroup, len(group.Groups)),
+	}
+	for i := range group.Groups {
+		nested := cloneGatewayFailoverValueConditionGroup(&group.Groups[i])
+		if nested != nil {
+			cloned.Groups[i] = *nested
+		}
 	}
 	return cloned
 }
@@ -484,10 +653,136 @@ func normalizeGatewayFailoverHeaderCondition(condition GatewayFailoverHeaderCond
 	return condition
 }
 
+func normalizeGatewayFailoverJSONConditionGroup(group *GatewayFailoverJSONConditionGroup, strict bool, ruleID string, depth int) (*GatewayFailoverJSONConditionGroup, error) {
+	if group == nil {
+		return nil, nil
+	}
+	if depth > gatewayFailoverPolicyMaxConditionGroupDepth {
+		if strict {
+			return nil, fmt.Errorf("rule %s json condition groups exceed max depth %d", ruleID, gatewayFailoverPolicyMaxConditionGroupDepth)
+		}
+		return nil, nil
+	}
+	normalized := &GatewayFailoverJSONConditionGroup{Logic: normalizeGatewayFailoverRuleLogic(group.Logic)}
+	conditions := group.Conditions
+	if len(conditions) > gatewayFailoverPolicyMaxConditions {
+		if strict {
+			return nil, fmt.Errorf("rule %s json conditions must contain at most %d items", ruleID, gatewayFailoverPolicyMaxConditions)
+		}
+		conditions = conditions[:gatewayFailoverPolicyMaxConditions]
+	}
+	for _, condition := range conditions {
+		condition = normalizeGatewayFailoverJSONCondition(condition)
+		if condition.Path != "" || len(condition.Paths) > 0 {
+			normalized.Conditions = append(normalized.Conditions, condition)
+		}
+	}
+	groups := group.Groups
+	if len(groups) > gatewayFailoverPolicyMaxConditions {
+		if strict {
+			return nil, fmt.Errorf("rule %s json condition groups must contain at most %d items", ruleID, gatewayFailoverPolicyMaxConditions)
+		}
+		groups = groups[:gatewayFailoverPolicyMaxConditions]
+	}
+	for i := range groups {
+		nested, err := normalizeGatewayFailoverJSONConditionGroup(&groups[i], strict, ruleID, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		if nested != nil && (len(nested.Conditions) > 0 || len(nested.Groups) > 0) {
+			normalized.Groups = append(normalized.Groups, *nested)
+		}
+	}
+	if len(normalized.Conditions) == 0 && len(normalized.Groups) == 0 {
+		return nil, nil
+	}
+	return normalized, nil
+}
+
+func normalizeGatewayFailoverHeaderConditionGroup(group *GatewayFailoverHeaderConditionGroup, strict bool, ruleID string, depth int) (*GatewayFailoverHeaderConditionGroup, error) {
+	if group == nil {
+		return nil, nil
+	}
+	if depth > gatewayFailoverPolicyMaxConditionGroupDepth {
+		if strict {
+			return nil, fmt.Errorf("rule %s header condition groups exceed max depth %d", ruleID, gatewayFailoverPolicyMaxConditionGroupDepth)
+		}
+		return nil, nil
+	}
+	normalized := &GatewayFailoverHeaderConditionGroup{Logic: normalizeGatewayFailoverRuleLogic(group.Logic)}
+	conditions := group.Conditions
+	if len(conditions) > gatewayFailoverPolicyMaxConditions {
+		if strict {
+			return nil, fmt.Errorf("rule %s header conditions must contain at most %d items", ruleID, gatewayFailoverPolicyMaxConditions)
+		}
+		conditions = conditions[:gatewayFailoverPolicyMaxConditions]
+	}
+	for _, condition := range conditions {
+		condition = normalizeGatewayFailoverHeaderCondition(condition)
+		if condition.Name != "" {
+			normalized.Conditions = append(normalized.Conditions, condition)
+		}
+	}
+	for i := range group.Groups {
+		nested, err := normalizeGatewayFailoverHeaderConditionGroup(&group.Groups[i], strict, ruleID, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		if nested != nil && (len(nested.Conditions) > 0 || len(nested.Groups) > 0) {
+			normalized.Groups = append(normalized.Groups, *nested)
+		}
+	}
+	if len(normalized.Conditions) == 0 && len(normalized.Groups) == 0 {
+		return nil, nil
+	}
+	return normalized, nil
+}
+
+func normalizeGatewayFailoverValueConditionGroup(group *GatewayFailoverValueConditionGroup, strict bool, ruleID, field string, depth int) (*GatewayFailoverValueConditionGroup, error) {
+	if group == nil {
+		return nil, nil
+	}
+	if depth > gatewayFailoverPolicyMaxConditionGroupDepth {
+		if strict {
+			return nil, fmt.Errorf("rule %s %s condition groups exceed max depth %d", ruleID, field, gatewayFailoverPolicyMaxConditionGroupDepth)
+		}
+		return nil, nil
+	}
+	normalized := &GatewayFailoverValueConditionGroup{Logic: normalizeGatewayFailoverRuleLogic(group.Logic)}
+	conditions := group.Conditions
+	if len(conditions) > gatewayFailoverPolicyMaxConditions {
+		if strict {
+			return nil, fmt.Errorf("rule %s %s conditions must contain at most %d items", ruleID, field, gatewayFailoverPolicyMaxConditions)
+		}
+		conditions = conditions[:gatewayFailoverPolicyMaxConditions]
+	}
+	for _, condition := range conditions {
+		condition = normalizeGatewayFailoverValueCondition(condition)
+		if condition.Op == GatewayFailoverRuleOpExists || condition.Op == GatewayFailoverRuleOpNotExists || condition.Value != "" || len(condition.Values) > 0 {
+			normalized.Conditions = append(normalized.Conditions, condition)
+		}
+	}
+	for i := range group.Groups {
+		nested, err := normalizeGatewayFailoverValueConditionGroup(&group.Groups[i], strict, ruleID, field, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		if nested != nil && (len(nested.Conditions) > 0 || len(nested.Groups) > 0) {
+			normalized.Groups = append(normalized.Groups, *nested)
+		}
+	}
+	if len(normalized.Conditions) == 0 && len(normalized.Groups) == 0 {
+		return nil, nil
+	}
+	return normalized, nil
+}
+
 func hasGatewayFailoverHTTPMatch(match GatewayFailoverRuleMatch) bool {
 	return len(match.StatusCodes) > 0 || len(match.StatusRanges) > 0 ||
 		len(match.JSONConditions) > 0 || len(match.HeaderConditions) > 0 ||
-		len(match.MessageConditions) > 0 || len(match.BodyConditions) > 0
+		len(match.MessageConditions) > 0 || len(match.BodyConditions) > 0 ||
+		match.JSONConditionGroup != nil || match.HeaderConditionGroup != nil ||
+		match.MessageConditionGroup != nil || match.BodyConditionGroup != nil
 }
 
 func normalizeGatewayFailoverRules(rules []GatewayFailoverRule, strict bool) ([]GatewayFailoverRule, error) {
@@ -606,6 +901,43 @@ func normalizeGatewayFailoverRules(rules []GatewayFailoverRule, strict bool) ([]
 		}
 		if match.TransportConditions, err = normalizeValueConditions("transport_conditions", match.TransportConditions); err != nil {
 			return nil, err
+		}
+		if match.JSONConditionGroup == nil && len(match.JSONConditions) > 0 {
+			match.JSONConditionGroup = &GatewayFailoverJSONConditionGroup{Logic: match.JSONLogic, Conditions: match.JSONConditions}
+		}
+		if match.HeaderConditionGroup == nil && len(match.HeaderConditions) > 0 {
+			match.HeaderConditionGroup = &GatewayFailoverHeaderConditionGroup{Logic: match.HeaderLogic, Conditions: match.HeaderConditions}
+		}
+		if match.MessageConditionGroup == nil && len(match.MessageConditions) > 0 {
+			match.MessageConditionGroup = &GatewayFailoverValueConditionGroup{Logic: GatewayFailoverRuleLogicAll, Conditions: match.MessageConditions}
+		}
+		if match.BodyConditionGroup == nil && len(match.BodyConditions) > 0 {
+			match.BodyConditionGroup = &GatewayFailoverValueConditionGroup{Logic: GatewayFailoverRuleLogicAll, Conditions: match.BodyConditions}
+		}
+		if match.TransportConditionGroup == nil && len(match.TransportConditions) > 0 {
+			match.TransportConditionGroup = &GatewayFailoverValueConditionGroup{Logic: GatewayFailoverRuleLogicAll, Conditions: match.TransportConditions}
+		}
+		if match.JSONConditionGroup, err = normalizeGatewayFailoverJSONConditionGroup(match.JSONConditionGroup, strict, rule.ID, 1); err != nil {
+			return nil, err
+		}
+		if match.HeaderConditionGroup, err = normalizeGatewayFailoverHeaderConditionGroup(match.HeaderConditionGroup, strict, rule.ID, 1); err != nil {
+			return nil, err
+		}
+		if match.MessageConditionGroup, err = normalizeGatewayFailoverValueConditionGroup(match.MessageConditionGroup, strict, rule.ID, "message", 1); err != nil {
+			return nil, err
+		}
+		if match.BodyConditionGroup, err = normalizeGatewayFailoverValueConditionGroup(match.BodyConditionGroup, strict, rule.ID, "body", 1); err != nil {
+			return nil, err
+		}
+		if match.TransportConditionGroup, err = normalizeGatewayFailoverValueConditionGroup(match.TransportConditionGroup, strict, rule.ID, "transport", 1); err != nil {
+			return nil, err
+		}
+		clearGatewayFailoverFlatConditions(&match)
+		if match.MaxScanBytes < 0 || match.MaxScanBytes > gatewayFailoverPolicyMaxScanBytes || (match.MaxScanBytes > 0 && match.MaxScanBytes < gatewayFailoverPolicyMinScanBytes) {
+			if strict && rule.Enabled {
+				return nil, fmt.Errorf("rule %s match.max_scan_bytes must be between %d-%d", rule.ID, gatewayFailoverPolicyMinScanBytes, gatewayFailoverPolicyMaxScanBytes)
+			}
+			match.MaxScanBytes = gatewayFailoverPolicyDefaultScanBytes
 		}
 		if match.Consecutive != nil {
 			if match.Consecutive.Threshold < gatewayFailoverPolicyMinThreshold || match.Consecutive.Threshold > gatewayFailoverPolicyMaxThreshold {
@@ -739,7 +1071,7 @@ func normalizeGatewayFailoverPolicySettings(settings *GatewayFailoverPolicySetti
 	}
 
 	if len(normalized.Rules) == 0 {
-		normalized.Rules = defaultGatewayFailoverRulesFromLegacy(normalized)
+		normalized.Rules = defaultGatewayFailoverRules()
 		return normalized, nil
 	}
 	rules, err := normalizeGatewayFailoverRules(normalized.Rules, strict)

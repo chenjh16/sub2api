@@ -1004,7 +1004,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	failedMessage := ""
 	clientOutputStarted := false
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
-	contentBlocker := s.newOpenAI200ContentBlockerDetector(ctx)
+	contentBlocker := s.newOpenAI200ContentBlockerDetector(ctx, resp.Header)
 	// pendingLines 在首个可见输出前保留前导事件，确保无输出失败仍可安全 failover。
 	pendingLines := make([]string, 0, 8)
 	// flushPending 表示已写入但未到 SSE 空行边界的脏状态；defer 兜底函数退出前的残留，断连后不再 Flush。
@@ -1135,8 +1135,8 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				responseID = extractOpenAIResponseIDFromJSONBytes(dataBytes)
 			}
 			imageCounter.AddSSEData(dataBytes)
-			if matched, keyword := contentBlocker.ObservePayload(dataBytes); matched {
-				failoverErr := s.newOpenAI200ContentBlockerFailoverError(c, account, upstreamRequestID, keyword)
+			if match := contentBlocker.ObservePayload(dataBytes); match != nil && match.decision.Failover {
+				failoverErr := s.newOpenAI200ContentBlockerFailoverError(ctx, c, account, upstreamRequestID, match)
 				if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
 					return resultWithUsage(), failoverErr
 				}
@@ -1251,7 +1251,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if err != nil {
 		return nil, err
 	}
-	if failoverErr := s.checkOpenAI200ContentBlocker(ctx, c, account, resp.Header.Get("x-request-id"), body); failoverErr != nil {
+	if failoverErr := s.checkOpenAI200ContentBlocker(ctx, c, account, resp.Header, resp.Header.Get("x-request-id"), body); failoverErr != nil {
 		return nil, failoverErr
 	}
 
