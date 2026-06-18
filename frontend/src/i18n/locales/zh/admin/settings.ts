@@ -1045,6 +1045,7 @@ export default {
         persistent: '持久',
         consecutive: '连续窗口',
         failover: '自动切换',
+        clearSessionBinding: '清理会话绑定',
         cooldownScope: '冷却范围',
         noCooldown: '无冷却',
         reason: '原因',

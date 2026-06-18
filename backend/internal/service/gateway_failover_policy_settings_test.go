@@ -106,23 +106,27 @@ func TestGatewayFailoverPolicySettings_DefaultsWhenNotSet(t *testing.T) {
 	settings, err := svc.GetGatewayFailoverPolicySettings(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "first", settings.MatchMode)
-	require.Len(t, settings.Rules, 5)
+	require.Len(t, settings.Rules, 6)
 	require.Equal(t, "openai_structured_400_cooldown", settings.Rules[0].ID)
 	require.NotNil(t, settings.Rules[0].Match.JSONConditionGroup)
 	require.Equal(t, GatewayFailoverRuleLogicAny, settings.Rules[0].Match.JSONConditionGroup.Logic)
 	require.Equal(t, 3, len(settings.Rules[0].Match.JSONConditionGroup.Conditions))
 	require.Equal(t, int(openAIUpstreamCooldownFallback/time.Second), settings.Rules[0].Action.CooldownSeconds)
-	require.Equal(t, "openai_http_5xx_threshold", settings.Rules[2].ID)
-	require.Equal(t, gatewayFailoverPolicyDefaultHTTP5xxThreshold, settings.Rules[2].Match.Consecutive.Threshold)
-	require.Equal(t, gatewayFailoverPolicyDefaultHTTP5xxCooldownSecond, settings.Rules[2].Action.CooldownSeconds)
-	require.Equal(t, "openai_transport_threshold", settings.Rules[3].ID)
-	require.Equal(t, gatewayFailoverPolicyDefaultTransportThreshold, settings.Rules[3].Match.Consecutive.Threshold)
-	require.Equal(t, "openai_200_content_text", settings.Rules[4].ID)
-	require.False(t, settings.Rules[4].Enabled)
-	require.Equal(t, []int{http.StatusOK}, settings.Rules[4].Match.StatusCodes)
-	require.Equal(t, gatewayFailoverPolicyDefaultScanBytes, settings.Rules[4].Match.MaxScanBytes)
-	require.NotNil(t, settings.Rules[4].Match.MessageConditionGroup)
-	require.Equal(t, GatewayFailoverRuleLogicAny, settings.Rules[4].Match.MessageConditionGroup.Logic)
+	require.Equal(t, "openai_request_too_large_tier_limit", settings.Rules[2].ID)
+	require.Equal(t, []int{http.StatusRequestEntityTooLarge}, settings.Rules[2].Match.StatusCodes)
+	require.NotNil(t, settings.Rules[2].Match.JSONConditionGroup)
+	require.True(t, settings.Rules[2].Action.ClearSessionBinding)
+	require.Equal(t, "openai_http_5xx_threshold", settings.Rules[3].ID)
+	require.Equal(t, gatewayFailoverPolicyDefaultHTTP5xxThreshold, settings.Rules[3].Match.Consecutive.Threshold)
+	require.Equal(t, gatewayFailoverPolicyDefaultHTTP5xxCooldownSecond, settings.Rules[3].Action.CooldownSeconds)
+	require.Equal(t, "openai_transport_threshold", settings.Rules[4].ID)
+	require.Equal(t, gatewayFailoverPolicyDefaultTransportThreshold, settings.Rules[4].Match.Consecutive.Threshold)
+	require.Equal(t, "openai_200_content_text", settings.Rules[5].ID)
+	require.False(t, settings.Rules[5].Enabled)
+	require.Equal(t, []int{http.StatusOK}, settings.Rules[5].Match.StatusCodes)
+	require.Equal(t, gatewayFailoverPolicyDefaultScanBytes, settings.Rules[5].Match.MaxScanBytes)
+	require.NotNil(t, settings.Rules[5].Match.MessageConditionGroup)
+	require.Equal(t, GatewayFailoverRuleLogicAny, settings.Rules[5].Match.MessageConditionGroup.Logic)
 }
 
 func TestSetGatewayFailoverPolicySettings_RoundTrip(t *testing.T) {
@@ -246,6 +250,30 @@ func TestGatewayFailoverPolicy_DisablesStructured400Failover(t *testing.T) {
 	account := &Account{ID: 9001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 	require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadRequest, http.Header{}, body))
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
+func TestGatewayFailoverPolicy_RequestTooLargeTierLimitFailsOverAndClearsSession(t *testing.T) {
+	settings := *DefaultGatewayFailoverPolicySettings()
+	updateGatewayFailoverRule(t, &settings, "openai_request_too_large_tier_limit", func(rule *GatewayFailoverRule) {
+		rule.Action.JitterPercent = 0
+	})
+	svc := newOpenAIFailoverPolicyTestService(t, settings)
+	sessionHash := "request-large-session"
+	groupID := int64(42)
+	cache := &stubGatewayCache{
+		sessionBindings: map[string]int64{"openai:" + sessionHash: 9005},
+	}
+	svc.cache = cache
+	account := &Account{ID: 9005, Name: "tier-0", Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	body := []byte(`{"error":{"code":"request_too_large","limit_bytes":5242880,"message":"Request body exceeds your tier limit (5MB for tier 0). Please upgrade your plan or split the context.","tier":0,"type":"invalid_request_error"}}`)
+	ctx := WithOpenAIForwardSession(context.Background(), &groupID, sessionHash)
+
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponseWithContext(ctx, account, http.StatusRequestEntityTooLarge, http.Header{}, "", body))
+	require.True(t, svc.handleOpenAIAccountUpstreamError(ctx, account, http.StatusRequestEntityTooLarge, http.Header{}, body))
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Equal(t, 1, cache.deletedSessions["openai:"+sessionHash])
+	_, exists := cache.sessionBindings["openai:"+sessionHash]
+	require.False(t, exists)
 }
 
 func TestGatewayFailoverPolicy_HTTP5xxThresholdBlocksAccount(t *testing.T) {
