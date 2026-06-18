@@ -158,7 +158,7 @@ PUT /api/v1/admin/settings/gateway-failover-policy
         "failover": true,
         "cooldown_scope": "runtime",
         "cooldown_seconds": 600,
-        "jitter_percent": 20,
+        "jitter_percent": 0,
         "reason": "rate_limit_cooldown"
       }
     }
@@ -202,7 +202,7 @@ PUT /api/v1/admin/settings/gateway-failover-policy
 | `action.failover` | 命中后是否把本次响应转换为 `UpstreamFailoverError` |
 | `action.cooldown_scope` | `none`、`runtime` 或 `temp_unsched` |
 | `action.cooldown_seconds` | 冷却时长，`runtime/temp_unsched` 时有效 |
-| `action.jitter_percent` | 冷却随机抖动比例 |
+| `action.jitter_percent` | 冷却随机抖动比例；结构化 400 / RPM / `request_too_large` 默认规则为 `0`，连续 5xx 和瞬时网络错误默认使用抖动 |
 | `action.reason` | 写入运行时冷却日志和调度阻断的原因 |
 | `action.clear_session_binding` | 命中后清理当前 OpenAI sticky session 绑定；适合账号能力不足或套餐限制类错误 |
 
@@ -309,7 +309,7 @@ equals, not_equals, contains, not_contains, exists, not_exists, in, regex
 ## 边界
 
 - 默认启用规则不根据 `message` 中的“十分钟”“当前繁忙”等文本做兜底判断；只有管理员启用并配置 200 内容规则后，才会按规则匹配文本。
-- 不从 `message` 中解析冷却时间；结构化 400 和 200 内容规则默认命中后冷却 10 分钟，如需调整，可直接修改对应规则的 `action.cooldown_seconds`。
+- 不从 `message` 中解析冷却时间；结构化 400、RPM、`request_too_large` 和 200 内容规则默认命中后固定冷却 10 分钟，如需调整，可直接修改对应规则的 `action.cooldown_seconds`。
 - 非 JSON 响应不会被结构化 400 规则识别；200 内容规则会扫描提取文本或原始响应前缀。
 - 其他普通 `400` 参数错误仍按原有错误处理流程返回。
 - 连续失败计数是进程内状态，多实例部署时各实例独立统计。

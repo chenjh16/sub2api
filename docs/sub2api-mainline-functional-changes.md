@@ -178,7 +178,7 @@ PUT /api/v1/admin/settings/gateway-failover-policy
         "failover": true,
         "cooldown_scope": "runtime",
         "cooldown_seconds": 600,
-        "jitter_percent": 20,
+        "jitter_percent": 0,
         "reason": "rate_limit_exceeded_rpm"
       }
     }
@@ -201,6 +201,8 @@ PUT /api/v1/admin/settings/gateway-failover-policy
 | `openai_http_5xx_threshold` | 启用 | `http_response` | 普通 `5xx` 每次 failover；同账号连续达到阈值后运行时短冷却 |
 | `openai_transport_threshold` | 启用 | `transport_error` | 瞬时网络错误每次 failover；同账号连续达到阈值后运行时短冷却 |
 | `openai_200_content_text` | 默认关闭 | `http_response` | 识别伪装成 `200 OK` 的维护、繁忙或公告文本，failover，运行时冷却 10 分钟 |
+
+补充说明：结构化 `400` / RPM / `request_too_large` 默认规则使用固定 10 分钟冷却，不加随机抖动；连续 `5xx` 与瞬时网络错误默认保留抖动，用于分散恢复时间。
 
 ### 匹配能力
 
@@ -247,7 +249,7 @@ HTTP 状态码、JSON、Header、Message、Body 等不同条件组之间仍按 A
 - `cooldown_scope=runtime`：仅在当前进程内短时间暂停该账号调度；
 - `cooldown_scope=temp_unsched`：写入账号临时不可调度状态；
 - `cooldown_seconds`：冷却秒数；
-- `jitter_percent`：冷却抖动比例；
+- `jitter_percent`：冷却抖动比例；结构化 400 / RPM / `request_too_large` 默认规则为 `0`，连续 5xx 和瞬时网络错误默认使用抖动；
 - `reason`：冷却原因；
 - `clear_session_binding=true`：清理当前 OpenAI sticky session 绑定。
 
@@ -710,6 +712,7 @@ backend/migrations/150_add_group_openai_default_service_tier.sql
 backend/migrations/151_migrate_gateway_failover_condition_groups.sql
 backend/migrations/152_migrate_gateway_content_blocker_to_failover_rule.sql
 backend/migrations/153_add_openai_request_too_large_failover_rule.sql
+backend/migrations/154_fix_structured_openai_failover_jitter.sql
 ```
 
 说明：
@@ -718,6 +721,7 @@ backend/migrations/153_add_openai_request_too_large_failover_rule.sql
 - `151`：将自动故障转移策略迁移到新的 condition group 结构；
 - `152`：将旧 200 内容拦截配置迁移为统一 failover 规则；
 - `153`：添加 `request_too_large` tier 限制默认 failover 规则。
+- `154`：修正早期已保存默认策略中的结构化 400 / RPM / `request_too_large` 抖动为 0。
 
 部署时需要确保迁移执行完成，否则后台字段或默认策略可能不完整。
 
@@ -984,4 +988,3 @@ WHERE platform = 'openai';
 - `docs/spec-branch-changes.md`
 - `docs/sub2api-local-installation.md`
 - `docs/sub2api-mainline-functional-changes.md`
-
