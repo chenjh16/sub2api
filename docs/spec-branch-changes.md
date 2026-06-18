@@ -12,7 +12,7 @@
 
 1. 为 OpenAI 分组增加默认 `service_tier`，支持在分组级别自动给请求注入 `priority`、`flex` 等服务层级。
 2. 识别上游结构化限流/冷却错误，避免把此类错误原样返回给客户端，改为触发账号 failover 并临时暂停该账号调度。
-3. 在管理后台“网关服务”增加自动故障转移策略，支持配置结构化 `400`、连续 `5xx`、连续网络错误短冷却，以及 200 成功响应里的公告文本拦截。
+3. 在管理后台“网关服务”增加自动故障转移策略，支持配置结构化 `400`、`413 request_too_large`、连续 `5xx`、连续网络错误短冷却，以及 200 成功响应里的公告文本拦截。
 4. 将原本独立的 200 响应内容关键词拦截并入自动故障转移规则，默认规则为 `openai_200_content_text`，可独立开关和编辑。
 
 这四项修改均优先遵循已有网关调度和 failover 机制，不新增独立调度器。
@@ -165,7 +165,21 @@ docs/openai-default-service-tier.md
 }
 ```
 
-这类响应虽然可能是 HTTP 400，但实际语义是上游账号、上游公益 Key 或上游节点临时不可用。如果原样转发给 Agent 客户端，客户端无法自动切换其他账号，体验会变成显式失败。
+也可能返回账号 tier 无法承接当前 body 的 `413 request_too_large`：
+
+```json
+{
+  "error": {
+    "code": "request_too_large",
+    "limit_bytes": 5242880,
+    "message": "Request body exceeds your tier limit (5MB for tier 0). Please upgrade your plan or split the context.",
+    "tier": 0,
+    "type": "invalid_request_error"
+  }
+}
+```
+
+这类响应虽然可能是 HTTP 400/413，但实际语义是上游账号、上游公益 Key 或上游节点临时不可用或能力不足。如果原样转发给 Agent 客户端，客户端无法自动切换其他账号，体验会变成显式失败。
 
 ### 识别策略
 
@@ -192,6 +206,12 @@ RPM 限流类命中条件必须同时满足：
 - `error.code == "rate_limit_exceeded"` 或顶层 `code == "rate_limit_exceeded"`
 - 顶层 `limit_type == "rpm"` 或 `error.limit_type == "rpm"`
 
+请求体超过上游套餐限制命中条件必须同时满足：
+
+- HTTP 状态码为 `413 Request Entity Too Large`
+- `error.code == "request_too_large"` 或顶层 `code == "request_too_large"`
+- `error.limit_bytes` 存在
+
 该策略只识别结构化字段，不依赖中文或英文 message 文案。
 
 ### failover 行为
@@ -202,13 +222,15 @@ RPM 限流类命中条件必须同时满足：
 2. 当前上游错误进入既有 `UpstreamFailoverError` 路径。
 3. `handleOpenAIAccountUpstreamError` 对当前 OpenAI 账号设置运行时暂停调度。
 4. 暂停时长默认为 10 分钟。
-5. handler 层继续按已有逻辑选择其他可用账号重试。
+5. 对 `openai_request_too_large_tier_limit` 规则额外清理当前 OpenAI sticky session 绑定，避免后续同 session 请求继续优先尝试同一低 tier 账号。
+6. handler 层继续按已有逻辑选择其他可用账号重试。
 
 运行时暂停原因：
 
 ```text
 rate_limit_cooldown
 rate_limit_exceeded_rpm
+request_too_large_tier_limit
 ```
 
 ### 影响范围
@@ -217,9 +239,10 @@ rate_limit_exceeded_rpm
 
 ### 兼容性
 
-- 只改变结构化 `rate_limit_cooldown`、`rate_limit_exceeded + limit_type=rpm` 的处理方式。
+- 只改变结构化 `rate_limit_cooldown`、`rate_limit_exceeded + limit_type=rpm`、`413 request_too_large + error.limit_bytes` 的处理方式。
 - 不会根据 message 中的“十分钟”等自然语言进行硬编码判断。
 - 只有 `rate_limit_exceeded` 但没有 `limit_type=rpm` 的 HTTP 400 响应仍走原有错误处理规则。
+- 没有 `error.limit_bytes` 的普通 `request_too_large` 不会命中默认 413 规则；管理员可自行新增更宽松的规则。
 - 如果上游返回其他 400 错误，仍走原有错误处理规则。
 
 ### 测试覆盖
@@ -228,6 +251,7 @@ rate_limit_exceeded_rpm
 
 - 结构化 `rate_limit_cooldown` 被识别为 failover。
 - 结构化 `rate_limit_exceeded + limit_type=rpm` 被识别为 failover。
+- `413 request_too_large + error.limit_bytes` 被识别为 failover，并清理当前 OpenAI sticky session 绑定。
 - 命中后账号运行时调度暂停约 10 分钟。
 - Codex CLI only 相关路径不会因为该逻辑产生回归。
 
@@ -252,6 +276,7 @@ docs/openai-upstream-error-failover.md
 本分支在该机制上补齐了更细的 OpenAI 策略：
 
 - 结构化 `400` 限流/冷却错误默认进入 failover，并对当前账号运行时冷却。
+- `413 request_too_large + error.limit_bytes` 默认进入 failover，对当前账号运行时冷却，并清理当前 OpenAI sticky session 绑定。
 - HTTP `5xx` 单次仍立即 failover；同一账号连续达到阈值后，运行时短冷却。
 - 瞬时网络/传输错误默认返回 `UpstreamFailoverError`；同一账号连续达到阈值后，运行时短冷却。
 - HTTP `200 OK` 中的维护、繁忙、公告文本可通过默认关闭的内容规则触发 failover。
@@ -320,6 +345,7 @@ PUT /api/v1/admin/settings/gateway-failover-policy
 | --- | --- | --- | --- |
 | `openai_structured_400_cooldown` | `http_response` | 100 | 识别 `rate_limit_cooldown` 或 `limit_type=cooldown`，自动 failover，运行时冷却 10 分钟 |
 | `openai_structured_400_rpm` | `http_response` | 110 | 识别 `rate_limit_exceeded + limit_type=rpm`，自动 failover，运行时冷却 10 分钟 |
+| `openai_request_too_large_tier_limit` | `http_response` | 120 | 识别 `413 request_too_large + error.limit_bytes`，自动 failover，运行时冷却 10 分钟，并清理当前 OpenAI session 绑定 |
 | `openai_http_5xx_threshold` | `http_response` | 200 | 普通 `5xx` 每次自动 failover，连续达到阈值后运行时短冷却 |
 | `openai_transport_threshold` | `transport_error` | 300 | 瞬时网络错误每次自动 failover，连续达到阈值后运行时短冷却 |
 | `openai_200_content_text` | `http_response` | 400 | 默认关闭；识别伪装成 `200 OK` 的维护、繁忙或公告文本，自动 failover，运行时冷却 10 分钟 |
@@ -334,7 +360,7 @@ PUT /api/v1/admin/settings/gateway-failover-policy
 - 网络错误分类：`transport_persistent`
 - 内容扫描上限：`match.max_scan_bytes`，用于 200 内容规则，默认 `65536`
 - 连续失败窗口：`match.consecutive.enabled/threshold/window_seconds`
-- 动作：`action.failover`、`cooldown_scope`、`cooldown_seconds`、`jitter_percent`、`reason`
+- 动作：`action.failover`、`cooldown_scope`、`cooldown_seconds`、`jitter_percent`、`reason`、`clear_session_binding`
 - 条件操作符：`equals`、`not_equals`、`contains`、`not_contains`、`exists`、`not_exists`、`in`、`regex`
 - 每个条件组支持 `logic=all/any`、`conditions` 和递归 `groups`，可表达 `(A OR B) AND C`、`A OR (B AND C)` 等组合
 
@@ -373,6 +399,7 @@ BlockAccountScheduling(account, until, reason)
 ```text
 rate_limit_cooldown
 rate_limit_exceeded_rpm
+request_too_large_tier_limit
 http_5xx_threshold
 transport_threshold
 content_blocker
