@@ -3571,6 +3571,17 @@ export default {
         oauthPassthrough: '自动透传（仅替换认证）',
         oauthPassthroughDesc:
           '开启后，该 OpenAI 账号将自动透传请求与响应，仅替换认证并保留计费/并发/审计及必要安全过滤；如遇兼容性问题可随时关闭回滚。',
+        breakStickySession: '打破粘性',
+        breakStickySessionDesc:
+          '开启后，可细分选择该账号要打破的粘性类型；该账号仍必须可调度且兼容当前请求，多个开启账号之间仍按现有优先级和负载规则调度。',
+        breakStickySessionHash: '普通 session 粘性',
+        breakStickySessionHashDesc:
+          '对应 prompt_cache_key、session_hash 等客户端会话锚点。开启后，已有 session 绑定到其他账号时，该账号仍可优先参与调度，并会把当前 session 重新绑定到选中的账号。',
+        breakStickyPreviousResponse: 'previous_response_id 粘性',
+        breakStickyPreviousResponseDesc:
+          '对应 Responses / WebSocket v2 的响应链路锚点。开启后，即使 previous_response_id 已绑定到其他账号，该账号也可优先参与调度；若上游不认识旧响应 ID，可能触发 previous_response_not_found 恢复重试。',
+        breakStickyAdvancedHint:
+          '建议先只开启普通 session 粘性；只有在需要强制把续链请求迁移到高优先级账号时，再开启 previous_response_id 粘性。',
         responsesWebsocketsV2: 'Responses WebSocket v2',
         responsesWebsocketsV2Desc:
           '默认关闭。开启后可启用 responses_websockets_v2 协议能力（受网关全局开关与账号类型开关约束）。',

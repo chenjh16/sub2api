@@ -133,6 +133,8 @@ docs/*
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
 !docs/legal/
 !docs/legal/*.md
+!docs/sub2api-local-installation.md
+!docs/sub2api-mainline-functional-changes.md
 .serena/
 .codex/
 frontend/coverage/

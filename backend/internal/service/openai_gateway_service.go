@@ -1667,17 +1667,30 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
 	}
 
-	// 1. 尝试粘性会话命中
-	// Try sticky session hit
-	if account := s.tryStickySessionHit(ctx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability); account != nil {
-		return account, nil
-	}
-
-	// 2. 获取可调度的 OpenAI 账号
+	// 1. 获取可调度的 OpenAI 账号
 	// Get schedulable OpenAI accounts
 	accounts, err := s.listSchedulableAccounts(ctx, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
+	}
+
+	// 2. 账号级“打破粘性”优先于普通 session_hash 粘性。
+	// Account-level break-sticky routing takes precedence over normal session_hash sticky.
+	if selected, _ := s.selectBestOpenAIBreakStickyAccount(ctx, groupID, accounts, requestedModel, excludedIDs, requireCompact, requiredCapability); selected != nil {
+		hydrated, err := s.hydrateSelectedAccount(ctx, selected)
+		if err != nil {
+			return nil, err
+		}
+		if sessionHash != "" {
+			_ = s.setStickySessionAccountID(ctx, groupID, sessionHash, selected.ID, openaiStickySessionTTL)
+		}
+		return hydrated, nil
+	}
+
+	// 3. 尝试粘性会话命中
+	// Try sticky session hit
+	if account := s.tryStickySessionHit(ctx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability); account != nil {
+		return account, nil
 	}
 
 	// 3. 按优先级 + LRU 选择最佳账号
@@ -1700,6 +1713,27 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 	}
 
 	return hydrated, nil
+}
+
+func filterOpenAIBreakStickyAccounts(accounts []Account, kind string) []Account {
+	if len(accounts) == 0 {
+		return nil
+	}
+	filtered := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if account.BreaksOpenAISticky(kind) {
+			filtered = append(filtered, account)
+		}
+	}
+	return filtered
+}
+
+func (s *OpenAIGatewayService) selectBestOpenAIBreakStickyAccount(ctx context.Context, groupID *int64, accounts []Account, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability) (*Account, bool) {
+	breakStickyAccounts := filterOpenAIBreakStickyAccounts(accounts, openAIAccountScheduleLayerSessionSticky)
+	if len(breakStickyAccounts) == 0 {
+		return nil, false
+	}
+	return s.selectBestAccount(ctx, groupID, breakStickyAccounts, requestedModel, excludedIDs, requireCompact, requiredCapability)
 }
 
 // tryStickySessionHit 尝试从粘性会话获取账号。
@@ -1929,8 +1963,13 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		return excluded
 	}
 
+	breakStickyOnly := false
+	if account, _ := s.selectBestOpenAIBreakStickyAccount(ctx, groupID, accounts, requestedModel, excludedIDs, requireCompact, requiredCapability); account != nil {
+		breakStickyOnly = true
+	}
+
 	// ============ Layer 1: Sticky session ============
-	if sessionHash != "" {
+	if sessionHash != "" && !breakStickyOnly {
 		accountID := stickyAccountID
 		if accountID > 0 && !isExcluded(accountID) {
 			account, err := s.getSchedulableAccount(ctx, accountID)
@@ -1981,6 +2020,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	for i := range accounts {
 		acc := &accounts[i]
 		if isExcluded(acc.ID) {
+			continue
+		}
+		if breakStickyOnly && !acc.BreaksOpenAISticky(openAIAccountScheduleLayerSessionSticky) {
 			continue
 		}
 		// Scheduler snapshots can be temporarily stale (bucket rebuild is throttled);

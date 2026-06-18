@@ -106,7 +106,7 @@ func TestGatewayFailoverPolicySettings_DefaultsWhenNotSet(t *testing.T) {
 	settings, err := svc.GetGatewayFailoverPolicySettings(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "first", settings.MatchMode)
-	require.Len(t, settings.Rules, 6)
+	require.Len(t, settings.Rules, 7)
 	require.Equal(t, "openai_structured_400_cooldown", settings.Rules[0].ID)
 	require.NotNil(t, settings.Rules[0].Match.JSONConditionGroup)
 	require.Equal(t, GatewayFailoverRuleLogicAny, settings.Rules[0].Match.JSONConditionGroup.Logic)
@@ -116,17 +116,21 @@ func TestGatewayFailoverPolicySettings_DefaultsWhenNotSet(t *testing.T) {
 	require.Equal(t, []int{http.StatusRequestEntityTooLarge}, settings.Rules[2].Match.StatusCodes)
 	require.NotNil(t, settings.Rules[2].Match.JSONConditionGroup)
 	require.True(t, settings.Rules[2].Action.ClearSessionBinding)
-	require.Equal(t, "openai_http_5xx_threshold", settings.Rules[3].ID)
-	require.Equal(t, gatewayFailoverPolicyDefaultHTTP5xxThreshold, settings.Rules[3].Match.Consecutive.Threshold)
-	require.Equal(t, gatewayFailoverPolicyDefaultHTTP5xxCooldownSecond, settings.Rules[3].Action.CooldownSeconds)
-	require.Equal(t, "openai_transport_threshold", settings.Rules[4].ID)
-	require.Equal(t, gatewayFailoverPolicyDefaultTransportThreshold, settings.Rules[4].Match.Consecutive.Threshold)
-	require.Equal(t, "openai_200_content_text", settings.Rules[5].ID)
-	require.False(t, settings.Rules[5].Enabled)
-	require.Equal(t, []int{http.StatusOK}, settings.Rules[5].Match.StatusCodes)
-	require.Equal(t, gatewayFailoverPolicyDefaultScanBytes, settings.Rules[5].Match.MaxScanBytes)
-	require.NotNil(t, settings.Rules[5].Match.MessageConditionGroup)
-	require.Equal(t, GatewayFailoverRuleLogicAny, settings.Rules[5].Match.MessageConditionGroup.Logic)
+	require.Equal(t, "openai_get_channel_failed_overloaded", settings.Rules[3].ID)
+	require.Equal(t, 130, settings.Rules[3].Priority)
+	require.Equal(t, gatewayFailoverPolicyGetChannelFailedCooldownSec, settings.Rules[3].Action.CooldownSeconds)
+	require.True(t, settings.Rules[3].Action.ClearSessionBinding)
+	require.Equal(t, "openai_http_5xx_threshold", settings.Rules[4].ID)
+	require.Equal(t, gatewayFailoverPolicyDefaultHTTP5xxThreshold, settings.Rules[4].Match.Consecutive.Threshold)
+	require.Equal(t, gatewayFailoverPolicyDefaultHTTP5xxCooldownSecond, settings.Rules[4].Action.CooldownSeconds)
+	require.Equal(t, "openai_transport_threshold", settings.Rules[5].ID)
+	require.Equal(t, gatewayFailoverPolicyDefaultTransportThreshold, settings.Rules[5].Match.Consecutive.Threshold)
+	require.Equal(t, "openai_200_content_text", settings.Rules[6].ID)
+	require.False(t, settings.Rules[6].Enabled)
+	require.Equal(t, []int{http.StatusOK}, settings.Rules[6].Match.StatusCodes)
+	require.Equal(t, gatewayFailoverPolicyDefaultScanBytes, settings.Rules[6].Match.MaxScanBytes)
+	require.NotNil(t, settings.Rules[6].Match.MessageConditionGroup)
+	require.Equal(t, GatewayFailoverRuleLogicAny, settings.Rules[6].Match.MessageConditionGroup.Logic)
 }
 
 func TestSetGatewayFailoverPolicySettings_RoundTrip(t *testing.T) {
@@ -274,6 +278,45 @@ func TestGatewayFailoverPolicy_RequestTooLargeTierLimitFailsOverAndClearsSession
 	require.Equal(t, 1, cache.deletedSessions["openai:"+sessionHash])
 	_, exists := cache.sessionBindings["openai:"+sessionHash]
 	require.False(t, exists)
+}
+
+func TestGatewayFailoverPolicy_GetChannelFailedOverloadedCoolsForOneHour(t *testing.T) {
+	settings := *DefaultGatewayFailoverPolicySettings()
+	updateGatewayFailoverRule(t, &settings, "openai_get_channel_failed_overloaded", func(rule *GatewayFailoverRule) {
+		rule.Action.JitterPercent = 0
+	})
+	svc := newOpenAIFailoverPolicyTestService(t, settings)
+	sessionHash := "anyrouter-overloaded-session"
+	groupID := int64(42)
+	cache := &stubGatewayCache{
+		sessionBindings: map[string]int64{"openai:" + sessionHash: 30},
+	}
+	svc.cache = cache
+	account := &Account{ID: 30, Name: "API-Anyrouter-OpenAI", Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	body := []byte(`{"error":{"code":"get_channel_failed","message":"当前模型 gpt-5.5 负载已经达到上限，请稍后重试 (request id: 20260616000048338386674Tqai8xjr)","param":"","type":"new_api_error"}}`)
+	ctx := WithOpenAIForwardSession(context.Background(), &groupID, sessionHash)
+	before := time.Now()
+
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponseWithContext(ctx, account, http.StatusInternalServerError, http.Header{}, "", body))
+	require.True(t, svc.handleOpenAIAccountUpstreamError(ctx, account, http.StatusInternalServerError, http.Header{}, body))
+	value, ok := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
+	require.True(t, ok)
+	until, ok := value.(time.Time)
+	require.True(t, ok)
+	require.WithinDuration(t, before.Add(time.Hour), until, 2*time.Second)
+	require.Equal(t, 1, cache.deletedSessions["openai:"+sessionHash])
+	_, exists := cache.sessionBindings["openai:"+sessionHash]
+	require.False(t, exists)
+}
+
+func TestGatewayFailoverPolicy_GetChannelFailedRequiresOverloadMessage(t *testing.T) {
+	svc := newOpenAIFailoverPolicyTestService(t, *DefaultGatewayFailoverPolicySettings())
+	account := &Account{ID: 30, Name: "API-Anyrouter-OpenAI", Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	body := []byte(`{"error":{"code":"get_channel_failed","message":"no available channel","param":"","type":"new_api_error"}}`)
+
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponseWithContext(context.Background(), account, http.StatusInternalServerError, http.Header{}, "", body))
+	require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, body))
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
 func TestGatewayFailoverPolicy_HTTP5xxThresholdBlocksAccount(t *testing.T) {

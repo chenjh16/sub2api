@@ -3,6 +3,7 @@ package service
 import (
 	"container/heap"
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -48,6 +49,8 @@ type OpenAIAccountScheduleRequest struct {
 	RequiredCapability      OpenAIEndpointCapability
 	RequiredImageCapability OpenAIImagesCapability
 	RequireCompact          bool
+	BreakStickyOnly         bool
+	BreakStickyKind         string
 	ExcludedIDs             map[int64]struct{}
 }
 
@@ -271,7 +274,28 @@ func (s *defaultOpenAIAccountScheduler) Select(
 
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
 	if previousResponseID != "" {
-		selection, err := s.service.selectAccountByPreviousResponseIDForCapability(
+		breakPreviousReq := req
+		breakPreviousReq.BreakStickyOnly = true
+		breakPreviousReq.BreakStickyKind = openAIAccountScheduleLayerPreviousResponse
+		selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, breakPreviousReq)
+		if err != nil && !isNoAvailableOpenAIAccountSelectionError(err) {
+			decision.Layer = openAIAccountScheduleLayerLoadBalance
+			decision.CandidateCount = candidateCount
+			decision.TopK = topK
+			decision.LoadSkew = loadSkew
+			return nil, decision, err
+		}
+		if selection != nil && selection.Account != nil {
+			decision.Layer = openAIAccountScheduleLayerLoadBalance
+			decision.CandidateCount = candidateCount
+			decision.TopK = topK
+			decision.LoadSkew = loadSkew
+			decision.SelectedAccountID = selection.Account.ID
+			decision.SelectedAccountType = selection.Account.Type
+			return selection, decision, nil
+		}
+
+		selection, err = s.service.selectAccountByPreviousResponseIDForCapability(
 			ctx,
 			req.GroupID,
 			previousResponseID,
@@ -303,6 +327,27 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
+	breakStickyReq := req
+	breakStickyReq.BreakStickyOnly = true
+	breakStickyReq.BreakStickyKind = openAIAccountScheduleLayerSessionSticky
+	selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, breakStickyReq)
+	if err != nil && !isNoAvailableOpenAIAccountSelectionError(err) {
+		decision.Layer = openAIAccountScheduleLayerLoadBalance
+		decision.CandidateCount = candidateCount
+		decision.TopK = topK
+		decision.LoadSkew = loadSkew
+		return nil, decision, err
+	}
+	if selection != nil && selection.Account != nil {
+		decision.Layer = openAIAccountScheduleLayerLoadBalance
+		decision.CandidateCount = candidateCount
+		decision.TopK = topK
+		decision.LoadSkew = loadSkew
+		decision.SelectedAccountID = selection.Account.ID
+		decision.SelectedAccountType = selection.Account.Type
+		return selection, decision, nil
+	}
+
 	selection, escapedSticky, err := s.selectBySessionHash(ctx, req)
 	if err != nil {
 		return nil, decision, err
@@ -318,7 +363,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		req.PreserveStickyBinding = true
 	}
 
-	selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, req)
+	selection, candidateCount, topK, loadSkew, err = s.selectByLoadBalance(ctx, req)
 	decision.Layer = openAIAccountScheduleLayerLoadBalance
 	decision.CandidateCount = candidateCount
 	decision.TopK = topK
@@ -957,6 +1002,9 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		if !account.IsSchedulable() || !account.IsOpenAI() {
 			continue
 		}
+		if req.BreakStickyOnly && !account.BreaksOpenAISticky(req.BreakStickyKind) {
+			continue
+		}
 		if s.service.isOpenAIAccountRuntimeBlocked(account) {
 			continue
 		}
@@ -1060,6 +1108,18 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	}
 
 	return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked)
+}
+
+func isNoAvailableOpenAIAccountSelectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrNoAvailableAccounts) || errors.Is(err, ErrNoAvailableCompactAccounts) {
+		return true
+	}
+	message := err.Error()
+	return strings.Contains(message, "no available OpenAI accounts") ||
+		strings.Contains(message, "no available accounts")
 }
 
 func (s *defaultOpenAIAccountScheduler) isAccountTransportCompatible(account *Account, requiredTransport OpenAIUpstreamTransport) bool {

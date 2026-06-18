@@ -90,6 +90,56 @@ func TestHandleOpenAIUpstreamTransportError_TransientFailsOverWithoutEviction(t 
 	require.Equal(t, 0, rec.Body.Len())
 }
 
+func TestHandleOpenAIUpstreamTransportError_PoolModeTransientCanRetrySameAccount(t *testing.T) {
+	repo := &openaiTransportAccountRepoStub{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	account := &Account{
+		ID:       100,
+		Name:     "flaky-pool",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"pool_mode":                    true,
+			"pool_mode_retry_status_codes": []any{float64(http.StatusBadGateway)},
+		},
+	}
+	c, _ := newOpenAITransportErrTestContext()
+
+	err := svc.handleOpenAIUpstreamTransportError(context.Background(), c, account,
+		errors.New(`Post "https://ai2.hhhl.cc/v1/responses": EOF`), false)
+
+	var fo *UpstreamFailoverError
+	require.True(t, errors.As(err, &fo))
+	require.True(t, fo.RetryableOnSameAccount)
+	require.Empty(t, repo.tempUnschedCalls)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
+func TestHandleOpenAIUpstreamTransportError_PoolModePersistentDoesNotRetrySameAccount(t *testing.T) {
+	repo := &openaiTransportAccountRepoStub{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	account := &Account{
+		ID:       101,
+		Name:     "dead-pool",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"pool_mode":                    true,
+			"pool_mode_retry_status_codes": []any{float64(http.StatusBadGateway)},
+		},
+	}
+	c, _ := newOpenAITransportErrTestContext()
+
+	err := svc.handleOpenAIUpstreamTransportError(context.Background(), c, account,
+		errors.New(`Post "https://ai2.hhhl.cc/v1/responses": dial tcp 127.0.0.1:443: connect: connection refused`), false)
+
+	var fo *UpstreamFailoverError
+	require.True(t, errors.As(err, &fo))
+	require.False(t, fo.RetryableOnSameAccount)
+	require.Len(t, repo.tempUnschedCalls, 1)
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
 // context.Canceled means the client disconnected — do NOT fail over to another
 // account and do NOT temporarily evict this one.
 func TestHandleOpenAIUpstreamTransportError_ContextCanceled_NoFailoverNoEviction(t *testing.T) {

@@ -77,6 +77,12 @@ const (
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
 
+const (
+	accountExtraBreakStickySession          = "break_sticky_session"
+	accountExtraBreakStickySessionHash      = "break_sticky_session_hash"
+	accountExtraBreakStickyPreviousResponse = "break_sticky_previous_response"
+)
+
 type TempUnschedulableRule struct {
 	ErrorCode       int      `json:"error_code"`
 	Keywords        []string `json:"keywords"`
@@ -1050,6 +1056,34 @@ func (a *Account) IsAPIKeyOrBedrock() bool {
 
 func (a *Account) IsOpenAI() bool {
 	return a.Platform == PlatformOpenAI
+}
+
+// BreaksStickySession reports whether this OpenAI account should bypass normal
+// session_hash sticky routing when it is otherwise compatible and schedulable.
+func (a *Account) BreaksStickySession() bool {
+	if a == nil || !a.IsOpenAI() {
+		return false
+	}
+	return resolveAccountExtraBool(a.Extra, accountExtraBreakStickySessionHash) ||
+		resolveAccountExtraBool(a.Extra, accountExtraBreakStickySession)
+}
+
+// BreaksStickyPreviousResponse reports whether this OpenAI account should bypass
+// previous_response_id sticky routing when it is otherwise compatible and schedulable.
+func (a *Account) BreaksStickyPreviousResponse() bool {
+	if a == nil || !a.IsOpenAI() {
+		return false
+	}
+	return resolveAccountExtraBool(a.Extra, accountExtraBreakStickyPreviousResponse)
+}
+
+func (a *Account) BreaksOpenAISticky(kind string) bool {
+	switch kind {
+	case openAIAccountScheduleLayerPreviousResponse:
+		return a.BreaksStickyPreviousResponse()
+	default:
+		return a.BreaksStickySession()
+	}
 }
 
 func (a *Account) IsAnthropic() bool {
