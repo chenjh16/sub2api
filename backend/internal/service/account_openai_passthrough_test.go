@@ -71,6 +71,45 @@ func TestAccount_IsOpenAIOAuthPassthroughEnabled(t *testing.T) {
 	})
 }
 
+func TestAccount_BreaksOpenAISticky(t *testing.T) {
+	t.Run("旧字段只打破普通 session 粘性", func(t *testing.T) {
+		account := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Extra: map[string]any{
+				accountExtraBreakStickySession: true,
+			},
+		}
+		require.True(t, account.BreaksOpenAISticky(openAIAccountScheduleLayerSessionSticky))
+		require.False(t, account.BreaksOpenAISticky(openAIAccountScheduleLayerPreviousResponse))
+	})
+
+	t.Run("新字段可独立打破 previous_response_id 粘性", func(t *testing.T) {
+		account := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Extra: map[string]any{
+				accountExtraBreakStickyPreviousResponse: true,
+			},
+		}
+		require.False(t, account.BreaksOpenAISticky(openAIAccountScheduleLayerSessionSticky))
+		require.True(t, account.BreaksOpenAISticky(openAIAccountScheduleLayerPreviousResponse))
+	})
+
+	t.Run("非 OpenAI 账号不生效", func(t *testing.T) {
+		account := &Account{
+			Platform: PlatformAnthropic,
+			Type:     AccountTypeAPIKey,
+			Extra: map[string]any{
+				accountExtraBreakStickySessionHash:      true,
+				accountExtraBreakStickyPreviousResponse: true,
+			},
+		}
+		require.False(t, account.BreaksOpenAISticky(openAIAccountScheduleLayerSessionSticky))
+		require.False(t, account.BreaksOpenAISticky(openAIAccountScheduleLayerPreviousResponse))
+	})
+}
+
 func TestAccount_IsCodexCLIOnlyEnabled(t *testing.T) {
 	t.Run("OpenAI OAuth 开启", func(t *testing.T) {
 		account := &Account{

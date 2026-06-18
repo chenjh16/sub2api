@@ -1,21 +1,22 @@
 # spec 分支相对 main 的变更说明
 
-本文档说明当前 `spec` 分支相对 `main` 主线的功能性修改。记录时点为 2026-06-12，本地功能对比范围如下；本文档提交本身仅用于说明，不计入功能差异：
+本文档说明当前 `spec` 分支相对 `main` 主线的功能性修改。记录时点为 2026-06-18，本地功能对比范围如下；本文档提交本身仅用于说明，不计入功能差异：
 
 - 基线：`main` / `e34ad2b1`
 - 功能分支：`spec` / 当前 HEAD
-- 对比范围：分组默认 `service_tier`、OpenAI 上游结构化错误 failover、自动故障转移策略、200 内容公告文本规则，以及对应文档与测试。
+- 对比范围：分组默认 `service_tier`、OpenAI 上游结构化错误 failover、自动故障转移策略、200 内容公告文本规则、OpenAI 账号“打破粘性”调度，以及对应文档与测试。
 
 ## 总览
 
-`spec` 分支围绕 OpenAI 网关稳定性和 Codex Team 使用体验做了四类增强：
+`spec` 分支围绕 OpenAI 网关稳定性和 Codex Team 使用体验做了五类增强：
 
 1. 为 OpenAI 分组增加默认 `service_tier`，支持在分组级别自动给请求注入 `priority`、`flex` 等服务层级。
 2. 识别上游结构化限流/冷却错误，避免把此类错误原样返回给客户端，改为触发账号 failover 并临时暂停该账号调度。
 3. 在管理后台“网关服务”增加自动故障转移策略，支持配置结构化 `400`、`413 request_too_large`、连续 `5xx`、连续网络错误短冷却，以及 200 成功响应里的公告文本拦截。
 4. 将原本独立的 200 响应内容关键词拦截并入自动故障转移规则，默认规则为 `openai_200_content_text`，可独立开关和编辑。
+5. 为 OpenAI 账号增加可细分的“打破粘性”选项，允许高优先级账号按需绕过普通 session 粘性或 `previous_response_id` 粘性。
 
-这四项修改均优先遵循已有网关调度和 failover 机制，不新增独立调度器。
+这些修改均优先遵循已有网关调度和 failover 机制，不新增独立调度器。
 
 ## 1. OpenAI 分组默认 service_tier
 
@@ -179,7 +180,19 @@ docs/openai-default-service-tier.md
 }
 ```
 
-这类响应虽然可能是 HTTP 400/413，但实际语义是上游账号、上游公益 Key 或上游节点临时不可用或能力不足。如果原样转发给 Agent 客户端，客户端无法自动切换其他账号，体验会变成显式失败。
+也可能返回 New API 风格的通道获取失败，例如 `API-Anyrouter-OpenAI` 在日志中出现的模型负载上限响应：
+
+```json
+{
+  "error": {
+    "code": "get_channel_failed",
+    "message": "当前模型 gpt-5.5 负载已经达到上限，请稍后重试",
+    "type": "new_api_error"
+  }
+}
+```
+
+这类响应虽然可能是 HTTP 400/413/500，但实际语义是上游账号、上游公益 Key 或上游节点临时不可用或能力不足。如果原样转发给 Agent 客户端，客户端无法自动切换其他账号，体验会变成显式失败。
 
 ### 识别策略
 
@@ -212,7 +225,14 @@ RPM 限流类命中条件必须同时满足：
 - `error.code == "request_too_large"` 或顶层 `code == "request_too_large"`
 - `error.limit_bytes` 存在
 
-该策略只识别结构化字段，不依赖中文或英文 message 文案。
+New API 通道获取失败且模型负载达到上限命中条件必须同时满足：
+
+- HTTP 状态码在 `400-599`
+- `error.code == "get_channel_failed"` 或顶层 `code == "get_channel_failed"`
+- `error.type == "new_api_error"` 或顶层 `type == "new_api_error"`
+- `error.message` 或顶层 `message` 包含 `负载已经达到上限`
+
+默认策略整体优先识别结构化字段；`openai_get_channel_failed_overloaded` 是有意保留的精确 message 限定，用于避免把其他 `get_channel_failed` 场景全部冷却 1 小时。
 
 ### failover 行为
 
@@ -221,8 +241,8 @@ RPM 限流类命中条件必须同时满足：
 1. `shouldFailoverOpenAIUpstreamResponse` 返回 true。
 2. 当前上游错误进入既有 `UpstreamFailoverError` 路径。
 3. `handleOpenAIAccountUpstreamError` 对当前 OpenAI 账号设置运行时暂停调度。
-4. 暂停时长默认为 10 分钟。
-5. 对 `openai_request_too_large_tier_limit` 规则额外清理当前 OpenAI sticky session 绑定，避免后续同 session 请求继续优先尝试同一低 tier 账号。
+4. 暂停时长由命中规则决定，常规结构化限流为 10 分钟，`openai_get_channel_failed_overloaded` 为 1 小时。
+5. 对 `openai_request_too_large_tier_limit` 和 `openai_get_channel_failed_overloaded` 规则额外清理当前 OpenAI sticky session 绑定，避免后续同 session 请求继续优先尝试同一能力不足或负载已满账号。
 6. handler 层继续按已有逻辑选择其他可用账号重试。
 
 运行时暂停原因：
@@ -231,6 +251,7 @@ RPM 限流类命中条件必须同时满足：
 rate_limit_cooldown
 rate_limit_exceeded_rpm
 request_too_large_tier_limit
+get_channel_failed_overloaded
 ```
 
 ### 影响范围
@@ -239,10 +260,11 @@ request_too_large_tier_limit
 
 ### 兼容性
 
-- 只改变结构化 `rate_limit_cooldown`、`rate_limit_exceeded + limit_type=rpm`、`413 request_too_large + error.limit_bytes` 的处理方式。
+- 只改变结构化 `rate_limit_cooldown`、`rate_limit_exceeded + limit_type=rpm`、`413 request_too_large + error.limit_bytes`、`get_channel_failed + new_api_error + 负载已经达到上限` 的处理方式。
 - 不会根据 message 中的“十分钟”等自然语言进行硬编码判断。
 - 只有 `rate_limit_exceeded` 但没有 `limit_type=rpm` 的 HTTP 400 响应仍走原有错误处理规则。
 - 没有 `error.limit_bytes` 的普通 `request_too_large` 不会命中默认 413 规则；管理员可自行新增更宽松的规则。
+- 没有 `负载已经达到上限` 文案的普通 `get_channel_failed` 不会命中新默认规则；如需覆盖可在自动故障转移策略中新增规则。
 - 如果上游返回其他 400 错误，仍走原有错误处理规则。
 
 ### 测试覆盖
@@ -252,7 +274,8 @@ request_too_large_tier_limit
 - 结构化 `rate_limit_cooldown` 被识别为 failover。
 - 结构化 `rate_limit_exceeded + limit_type=rpm` 被识别为 failover。
 - `413 request_too_large + error.limit_bytes` 被识别为 failover，并清理当前 OpenAI sticky session 绑定。
-- 命中后账号运行时调度暂停约 10 分钟。
+- `get_channel_failed + new_api_error + 负载已经达到上限` 被识别为 failover，运行时冷却 1 小时，并清理当前 OpenAI sticky session 绑定。
+- 命中后账号按规则配置进入运行时调度暂停。
 - Codex CLI only 相关路径不会因为该逻辑产生回归。
 
 相关测试文件：
@@ -346,6 +369,7 @@ PUT /api/v1/admin/settings/gateway-failover-policy
 | `openai_structured_400_cooldown` | `http_response` | 100 | 识别 `rate_limit_cooldown` 或 `limit_type=cooldown`，自动 failover，运行时冷却 10 分钟 |
 | `openai_structured_400_rpm` | `http_response` | 110 | 识别 `rate_limit_exceeded + limit_type=rpm`，自动 failover，运行时冷却 10 分钟 |
 | `openai_request_too_large_tier_limit` | `http_response` | 120 | 识别 `413 request_too_large + error.limit_bytes`，自动 failover，运行时冷却 10 分钟，并清理当前 OpenAI session 绑定 |
+| `openai_get_channel_failed_overloaded` | `http_response` | 130 | 识别 `get_channel_failed + new_api_error + 负载已经达到上限`，自动 failover，运行时冷却 1 小时，并清理当前 OpenAI session 绑定 |
 | `openai_http_5xx_threshold` | `http_response` | 200 | 普通 `5xx` 每次自动 failover，连续达到阈值后运行时短冷却 |
 | `openai_transport_threshold` | `transport_error` | 300 | 瞬时网络错误每次自动 failover，连续达到阈值后运行时短冷却 |
 | `openai_200_content_text` | `http_response` | 400 | 默认关闭；识别伪装成 `200 OK` 的维护、繁忙或公告文本，自动 failover，运行时冷却 10 分钟 |
@@ -638,7 +662,91 @@ UI 风格沿用现有后台：
 - 使用 JSON 条件组 textarea 管理复杂匹配条件。
 - 保存失败使用既有 `extractApiErrorMessage` 提示。
 
-## 6. 运维与验证
+## 6. OpenAI 账号“打破粘性”调度
+
+### 背景
+
+OpenAI 网关为了保证连续会话稳定，会优先使用 `session_hash` 粘性绑定账号。该行为适合大多数 Agent 会话，但也会带来一个副作用：某些低成本、优先级数值更小的账号即使当前可用，也可能因为已有 session 已经绑定到其他账号而长期无法参与调度。
+
+排查 API-HHHL 一类账号时，需要同时看以下条件：
+
+- `status=active` 且 `schedulable=true` 只是基础条件。
+- `rate_limit_reset_at`、`overload_until`、`temp_unschedulable_until` 未到期时账号仍会被 `IsSchedulable()` 排除。
+- `model_mapping` / `model_whitelist` 不覆盖请求模型时，账号不会进入候选。
+- WS v2 请求会要求账号开启 `openai_*_responses_websockets_v2_enabled`；未开启的账号只能参与兼容的 HTTP/SSE 转发。
+- 账号可用且兼容时，普通 `session_hash` 粘性仍可能先命中其他账号。
+
+本次新增账号级配置解决最后一类问题。
+
+### 配置方式
+
+后台进入：
+
+```text
+账号管理 -> 编辑 OpenAI OAuth/API Key 账号 -> 打破粘性
+```
+
+该设置位于“过期时间”之前。先打开总开关，再按需勾选具体粘性类型：
+
+- 普通 session 粘性：对应 `prompt_cache_key`、`session_hash` 等客户端会话锚点，用于让同一个 Agent 会话稳定落在同一账号上。
+- `previous_response_id` 粘性：对应 OpenAI Responses / WebSocket v2 的响应链路锚点，用于让续链请求继续回到创建该 response 的账号。
+
+保存后会在账号 `extra` 写入新的细分字段：
+
+```json
+{
+  "break_sticky_session_hash": true,
+  "break_sticky_previous_response": false
+}
+```
+
+也可以同时开启两个细分项：
+
+```json
+{
+  "break_sticky_session_hash": true,
+  "break_sticky_previous_response": true
+}
+```
+
+关闭总开关时删除上述字段。旧版 `break_sticky_session` 字段仍会被后端识别为“普通 session 粘性”，前端保存后会转写为新的 `break_sticky_session_hash` 字段。
+
+### 调度语义
+
+开启“打破粘性”的账号并不是强制无条件使用。它必须同时满足：
+
+- 账号属于 OpenAI 平台；
+- 账号当前可调度；
+- 支持当前请求模型；
+- 支持当前请求端点能力，例如 Chat Completions、Embeddings、Images；
+- 支持当前 transport，例如 HTTP/SSE 或 Responses WebSocket v2；
+- 未被本次请求排除；
+- 未被运行时短冷却拦截；
+- 对 compact 请求满足 compact 能力要求。
+
+当存在至少一个满足上述条件的“打破粘性”账号时：
+
+1. 若账号开启“普通 session 粘性”，普通 `session_hash` / `prompt_cache_key` 粘性会让路。
+2. 若账号开启 `previous_response_id` 粘性，Responses / WebSocket v2 续链请求也可以优先调度到该账号，即使该 `previous_response_id` 之前绑定在其他账号上。
+3. 调度器只在匹配当前粘性类型的“打破粘性”账号之间按现有规则选择。
+4. 多个开启账号之间继续使用原有优先级、负载、等待队列、错误率和 TTFT 评分。
+5. 选中的账号会重新绑定当前 `session_hash`，后续请求在没有更优“打破粘性”候选时仍保持正常粘性行为。
+
+建议默认只勾选“普通 session 粘性”。只有当希望高优先级账号强制接管 Responses 续链请求时，才勾选 `previous_response_id` 粘性；如果新账号对应的上游不认识旧 response ID，后续请求可能触发已有的 `previous_response_not_found` 恢复逻辑。
+
+高级调度器和旧版 load-awareness 回退路径都支持该能力。
+
+### 主要实现文件
+
+- `backend/internal/service/account.go`
+- `backend/internal/service/openai_account_scheduler.go`
+- `backend/internal/service/openai_gateway_service.go`
+- `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/i18n/locales/zh.ts`
+- `frontend/src/i18n/locales/en.ts`
+- `backend/internal/service/openai_account_scheduler_test.go`
+
+## 7. 运维与验证
 
 ### 本地验证命令
 
@@ -693,8 +801,9 @@ curl -fsS http://127.0.0.1:18080/health
 2. 若使用嵌入前端，需要先执行前端构建，再使用 `-tags embed` 构建后端。
 3. 200 内容公告文本规则默认关闭，部署后需要管理员在自动故障转移策略中显式开启并配置条件。
 4. 对已有分组没有默认行为变化，除非管理员配置 `openai_default_service_tier`。
+5. “打破粘性”为账号级可选开关；未开启账号保持原有粘性调度行为。
 
-## 7. 回滚与降级
+## 8. 回滚与降级
 
 如需临时关闭这些能力：
 
@@ -728,7 +837,19 @@ WHERE platform = 'openai';
 
 可在“自动故障转移策略”中关闭或删除对应默认规则。若确需彻底恢复旧行为，需要回滚结构化错误 failover、连续失败计数器和 transport error failover 的相关修改。
 
-## 8. 风险与边界
+### 关闭账号“打破粘性”
+
+后台进入对应 OpenAI 账号编辑页，关闭“打破粘性”即可；或执行：
+
+```sql
+UPDATE accounts
+SET extra = extra - 'break_sticky_session_hash'
+          - 'break_sticky_previous_response'
+          - 'break_sticky_session'
+WHERE platform = 'openai';
+```
+
+## 9. 风险与边界
 
 - 200 内容规则依赖管理员配置关键词或正则。关键词过短可能误伤正常模型输出。
 - 200 内容规则只扫描前 `match.max_scan_bytes` 字节，极晚出现的维护文本可能不会被拦截。
@@ -736,8 +857,10 @@ WHERE platform = 'openai';
 - 结构化限流/冷却识别只针对 JSON 字段，不根据自然语言 message 猜测。
 - 连续失败短冷却是进程内状态，多实例部署时各实例独立统计。
 - 分组默认 `service_tier` 只对 OpenAI 平台分组生效。
+- “打破粘性”不会绕过账号冷却、模型限制或 transport 能力；`previous_response_id` 是否可被绕过由账号上的独立细分项控制。
+- 开启 `previous_response_id` 粘性后，续链请求可能被迁移到未创建原 response 的账号，需要依赖既有 `previous_response_not_found` 恢复逻辑兜底。
 
-## 9. 主要变更文件索引
+## 10. 主要变更文件索引
 
 数据库与模型：
 
@@ -758,6 +881,8 @@ OpenAI 网关：
 - `backend/internal/service/openai_gateway_failover_policy.go`
 - `backend/internal/service/openai_upstream_transport_error.go`
 - `backend/internal/service/openai_response_content_blocker.go`
+- `backend/internal/service/openai_account_scheduler.go`
+- `backend/internal/service/account.go`
 
 后台 API：
 
@@ -770,6 +895,7 @@ OpenAI 网关：
 
 - `frontend/src/views/admin/GroupsView.vue`
 - `frontend/src/views/admin/SettingsView.vue`
+- `frontend/src/components/account/EditAccountModal.vue`
 - `frontend/src/api/admin/settings.ts`
 - `frontend/src/types/index.ts`
 - `frontend/src/i18n/locales/zh.ts`
@@ -783,3 +909,4 @@ OpenAI 网关：
 - `backend/internal/service/openai_upstream_rate_limit_failover_test.go`
 - `backend/internal/service/gateway_failover_policy_settings_test.go`
 - `backend/internal/service/openai_response_content_blocker_test.go`
+- `backend/internal/service/openai_account_scheduler_test.go`
