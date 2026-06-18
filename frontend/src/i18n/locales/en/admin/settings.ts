@@ -1007,6 +1007,7 @@ export default {
         persistent: 'Persistent',
         consecutive: 'Consecutive Window',
         failover: 'Failover',
+        clearSessionBinding: 'Clear Session Binding',
         cooldownScope: 'Cooldown Scope',
         noCooldown: 'No cooldown',
         reason: 'Reason',

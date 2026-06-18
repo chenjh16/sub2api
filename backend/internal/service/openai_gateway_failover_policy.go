@@ -391,6 +391,9 @@ func (s *OpenAIGatewayService) applyOpenAIFailoverRuleSideEffects(ctx context.Co
 		return rule.Action.Failover
 	}
 	action := rule.Action
+	if action.ClearSessionBinding {
+		s.clearOpenAIForwardSessionBinding(ctx, account, rule)
+	}
 	shouldCooldown := action.CooldownScope != GatewayFailoverCooldownScopeNone && action.CooldownSeconds > 0
 	if shouldCooldown && rule.Match.Consecutive != nil && rule.Match.Consecutive.Enabled {
 		count, reached := s.recordOpenAIConsecutiveFailure(
@@ -409,6 +412,38 @@ func (s *OpenAIGatewayService) applyOpenAIFailoverRuleSideEffects(ctx context.Co
 		s.applyOpenAIRuleCooldown(ctx, account, event, rule, 1, 1)
 	}
 	return action.Failover
+}
+
+func (s *OpenAIGatewayService) clearOpenAIForwardSessionBinding(ctx context.Context, account *Account, rule GatewayFailoverRule) {
+	if s == nil || account == nil {
+		return
+	}
+	groupID, sessionHash, ok := openAIForwardSessionFromContext(ctx)
+	if !ok {
+		return
+	}
+	deleteCtx, cancel := openAIAccountStateContext(ctx)
+	defer cancel()
+	if err := s.deleteStickySessionAccountID(deleteCtx, groupID, sessionHash); err != nil {
+		logger.L().With(zap.String("component", "service.openai_gateway")).Warn(
+			"openai.failover_policy_clear_session_binding_failed",
+			zap.Int64("account_id", account.ID),
+			zap.String("account_name", account.Name),
+			zap.String("platform", account.Platform),
+			zap.String("rule_id", rule.ID),
+			zap.String("session_hash", shortSessionHash(sessionHash)),
+			zap.Error(err),
+		)
+		return
+	}
+	logger.L().With(zap.String("component", "service.openai_gateway")).Info(
+		"openai.failover_policy_clear_session_binding",
+		zap.Int64("account_id", account.ID),
+		zap.String("account_name", account.Name),
+		zap.String("platform", account.Platform),
+		zap.String("rule_id", rule.ID),
+		zap.String("session_hash", shortSessionHash(sessionHash)),
+	)
 }
 
 func (s *OpenAIGatewayService) applyOpenAIRuleCooldown(ctx context.Context, account *Account, event openAIFailoverRuleEvent, rule GatewayFailoverRule, count int, threshold int) {

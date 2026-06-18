@@ -258,6 +258,30 @@ func defaultGatewayFailoverRulesFromLegacy(settings *GatewayFailoverPolicySettin
 			},
 		},
 		{
+			ID:          "openai_request_too_large_tier_limit",
+			Name:        "请求体超过上游套餐限制",
+			Description: "匹配 OpenAI 上游 413 request_too_large 且包含 limit_bytes 的套餐体积限制响应",
+			Enabled:     true,
+			Priority:    120,
+			Event:       GatewayFailoverRuleEventHTTPResponse,
+			Match: GatewayFailoverRuleMatch{
+				StatusCodes: []int{http.StatusRequestEntityTooLarge},
+				JSONLogic:   GatewayFailoverRuleLogicAll,
+				JSONConditions: []GatewayFailoverJSONCondition{
+					{Paths: []string{"error.code", "code"}, Op: GatewayFailoverRuleOpEquals, Value: "request_too_large"},
+					{Path: "error.limit_bytes", Op: GatewayFailoverRuleOpExists},
+				},
+			},
+			Action: GatewayFailoverRuleAction{
+				Failover:            true,
+				CooldownScope:       GatewayFailoverCooldownScopeRuntime,
+				CooldownSeconds:     structuredCooldownSeconds,
+				JitterPercent:       jitter,
+				Reason:              "request_too_large_tier_limit",
+				ClearSessionBinding: true,
+			},
+		},
+		{
 			ID:          "openai_http_5xx_threshold",
 			Name:        "连续 HTTP 5xx",
 			Description: "OpenAI 上游连续 5xx 时自动 failover，并在达到阈值后短冷却",
