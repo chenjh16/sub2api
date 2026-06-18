@@ -149,6 +149,8 @@ docs/screenshots/*
 !docs/screenshots/mobile-account-actions-menu.png
 !docs/screenshots/codex-referral-dialog.png
 !docs/screenshots/codex-referral-success.png
+!docs/sub2api-local-installation.md
+!docs/sub2api-mainline-functional-changes.md
 .serena/
 .codex/
 frontend/coverage/
