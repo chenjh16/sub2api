@@ -1479,6 +1479,7 @@ export interface GatewayFailoverRuleAction {
   cooldown_seconds: number;
   jitter_percent: number;
   reason: string;
+  clear_session_binding: boolean;
 }
 
 export interface GatewayFailoverRule {

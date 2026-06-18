@@ -823,7 +823,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.Forward(c.Request.Context(), c, account, attemptBody)
+			forwardCtx := service.WithOpenAIForwardSession(c.Request.Context(), apiKey.GroupID, sessionHash)
+			return h.gatewayService.Forward(forwardCtx, c, account, attemptBody)
 		}()
 		if h.handleForwardRequestBodyMemoryOverload(c, err, streamStarted) {
 			return
@@ -1420,7 +1421,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, defaultMappedModel)
+			forwardCtx := service.WithOpenAIForwardSession(c.Request.Context(), apiKey.GroupID, sessionHash)
+			return h.gatewayService.ForwardAsAnthropic(forwardCtx, c, account, forwardBody, promptCacheKey, defaultMappedModel)
 		}()
 		var cyberBlockBodyMsg []byte
 		if service.GetOpsCyberPolicy(c) != nil {
