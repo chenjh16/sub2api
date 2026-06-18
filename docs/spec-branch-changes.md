@@ -354,7 +354,7 @@ PUT /api/v1/admin/settings/gateway-failover-policy
         "failover": true,
         "cooldown_scope": "runtime",
         "cooldown_seconds": 600,
-        "jitter_percent": 20,
+        "jitter_percent": 0,
         "reason": "rate_limit_exceeded_rpm"
       }
     }
@@ -520,6 +520,7 @@ content_blocker
 - 新迁移 `backend/migrations/152_migrate_gateway_content_blocker_to_failover_rule.sql` 会把旧 `gateway_content_blocker_settings` 转为 `openai_200_content_text` 规则。
 - 如果旧内容拦截已启用且有关键词，迁移会保留关键词、冷却分钟数和扫描上限。
 - 迁移后会删除旧 setting；运行时不再读取 `gateway_content_blocker_settings`。
+- 新迁移 `backend/migrations/154_fix_structured_openai_failover_jitter.sql` 会把早期已保存默认策略中的结构化 400 / RPM / `request_too_large` 规则抖动从 `20` 修正为 `0`，确保这些规则固定冷却 10 分钟。
 
 ### 匹配策略
 
@@ -802,6 +803,7 @@ curl -fsS http://127.0.0.1:18080/health
 3. 200 内容公告文本规则默认关闭，部署后需要管理员在自动故障转移策略中显式开启并配置条件。
 4. 对已有分组没有默认行为变化，除非管理员配置 `openai_default_service_tier`。
 5. “打破粘性”为账号级可选开关；未开启账号保持原有粘性调度行为。
+6. 结构化 400 / RPM / `request_too_large` 默认规则不使用冷却抖动，默认固定冷却 10 分钟；连续 5xx 和瞬时网络错误短冷却仍可使用抖动分散恢复时间。
 
 ## 8. 回滚与降级
 
