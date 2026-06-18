@@ -855,6 +855,12 @@
                         </span>
                         <Toggle v-model="selectedGatewayFailoverRule.action.failover" />
                       </div>
+                      <div class="flex min-h-[44px] items-center justify-between gap-4 rounded-md border border-gray-100 px-3 py-2 dark:border-dark-700">
+                        <span class="whitespace-nowrap text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.gatewayFailoverPolicy.clearSessionBinding") }}
+                        </span>
+                        <Toggle v-model="selectedGatewayFailoverRule.action.clear_session_binding" />
+                      </div>
                       <div>
                         <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                           {{ t("admin.settings.gatewayFailoverPolicy.cooldownScope") }}
@@ -7743,6 +7749,7 @@ function createGatewayFailoverRule(): GatewayFailoverRule {
       cooldown_seconds: 600,
       jitter_percent: 0,
       reason: "custom_failover",
+      clear_session_binding: false,
     },
   };
 }
@@ -7779,7 +7786,9 @@ function normalizeGatewayFailoverRuleForEdit(rule: GatewayFailoverRule): Gateway
     cooldown_seconds: 600,
     jitter_percent: 0,
     reason: normalized.id || "custom_failover",
+    clear_session_binding: false,
   };
+  normalized.action.clear_session_binding = Boolean(normalized.action.clear_session_binding);
   return normalized;
 }
 

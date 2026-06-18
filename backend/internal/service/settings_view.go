@@ -562,11 +562,12 @@ type GatewayFailoverRuleMatch struct {
 
 // GatewayFailoverRuleAction 单条故障转移规则命中后的动作。
 type GatewayFailoverRuleAction struct {
-	Failover        bool   `json:"failover"`
-	CooldownScope   string `json:"cooldown_scope"`
-	CooldownSeconds int    `json:"cooldown_seconds"`
-	JitterPercent   int    `json:"jitter_percent"`
-	Reason          string `json:"reason"`
+	Failover            bool   `json:"failover"`
+	CooldownScope       string `json:"cooldown_scope"`
+	CooldownSeconds     int    `json:"cooldown_seconds"`
+	JitterPercent       int    `json:"jitter_percent"`
+	Reason              string `json:"reason"`
+	ClearSessionBinding bool   `json:"clear_session_binding"`
 }
 
 // GatewayFailoverRule 网关自动故障转移规则。
