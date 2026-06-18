@@ -492,6 +492,17 @@ export default {
         longContextBilling: 'API long-context pricing',
         longContextBillingDesc:
           'Disabled by default. Enable only when this account\'s upstream charges OpenAI API long-context rates above the model threshold.',
+        breakStickySession: 'Break Sticky',
+        breakStickySessionDesc:
+          'Choose which sticky routing anchors this account may bypass. The account must still be schedulable and compatible; multiple enabled accounts still use the existing priority and load rules.',
+        breakStickySessionHash: 'Normal session sticky',
+        breakStickySessionHashDesc:
+          'Applies to client session anchors such as prompt_cache_key and session_hash. When enabled, this account can take priority even if the current session is bound to another account, and the session binding is updated to the selected account.',
+        breakStickyPreviousResponse: 'previous_response_id sticky',
+        breakStickyPreviousResponseDesc:
+          'Applies to Responses / WebSocket v2 response-chain anchors. When enabled, this account can take priority even if previous_response_id is bound to another account; if the upstream does not recognize that response ID, previous_response_not_found recovery may be triggered.',
+        breakStickyAdvancedHint:
+          'Start with normal session sticky. Enable previous_response_id sticky only when you intentionally want continuation requests to migrate to higher-priority accounts.',
         responsesWebsocketsV2: 'Responses WebSocket v2',
         responsesWebsocketsV2Desc:
           'Disabled by default. Enable to allow responses_websockets_v2 capability (still gated by global and account-type switches).',

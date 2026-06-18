@@ -3,6 +3,7 @@ package service
 import (
 	"container/heap"
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -82,6 +83,8 @@ type OpenAIAccountScheduleRequest struct {
 	RequiredCapability      OpenAIEndpointCapability
 	RequiredImageCapability OpenAIImagesCapability
 	RequireCompact          bool
+	BreakStickyOnly         bool
+	BreakStickyKind         string
 	ExcludedIDs             map[int64]struct{}
 }
 
@@ -377,38 +380,81 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	}()
 
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
-	if previousResponseID != "" && normalizeOpenAICompatiblePlatform(req.Platform) == PlatformOpenAI &&
-		(!req.StickyWeighted || !req.PreviousResponseCanMove) {
-		selection, err := s.service.selectAccountByPreviousResponseIDForCapability(
-			ctx,
-			req.GroupID,
-			previousResponseID,
-			req.RequestedModel,
-			req.ExcludedIDs,
-			req.RequiredCapability,
-			req.RequireCompact,
-		)
-		if err != nil {
+	if previousResponseID != "" && normalizeOpenAICompatiblePlatform(req.Platform) == PlatformOpenAI {
+		breakPreviousReq := req
+		breakPreviousReq.BreakStickyOnly = true
+		breakPreviousReq.BreakStickyKind = openAIAccountScheduleLayerPreviousResponse
+		selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, breakPreviousReq)
+		if err != nil && !isNoAvailableOpenAIAccountSelectionError(err) {
+			decision.Layer = openAIAccountScheduleLayerLoadBalance
+			decision.CandidateCount = candidateCount
+			decision.TopK = topK
+			decision.LoadSkew = loadSkew
 			return nil, decision, err
 		}
 		if selection != nil && selection.Account != nil {
-			if !s.isAccountTransportCompatible(selection.Account, req.RequiredTransport) {
-				if selection.ReleaseFunc != nil {
-					selection.ReleaseFunc()
-				}
-				selection = nil
-			}
-		}
-		if selection != nil && selection.Account != nil {
-			decision.Layer = openAIAccountScheduleLayerPreviousResponse
-			decision.StickyPreviousHit = true
+			decision.Layer = openAIAccountScheduleLayerLoadBalance
+			decision.CandidateCount = candidateCount
+			decision.TopK = topK
+			decision.LoadSkew = loadSkew
 			decision.SelectedAccountID = selection.Account.ID
 			decision.SelectedAccountType = selection.Account.Type
-			if req.SessionHash != "" {
-				_ = s.service.BindStickySession(ctx, req.GroupID, req.SessionHash, selection.Account.ID)
-			}
 			return selection, decision, nil
 		}
+
+		if !req.StickyWeighted || !req.PreviousResponseCanMove {
+			selection, err = s.service.selectAccountByPreviousResponseIDForCapability(
+				ctx,
+				req.GroupID,
+				previousResponseID,
+				req.RequestedModel,
+				req.ExcludedIDs,
+				req.RequiredCapability,
+				req.RequireCompact,
+			)
+			if err != nil {
+				return nil, decision, err
+			}
+			if selection != nil && selection.Account != nil {
+				if !s.isAccountTransportCompatible(selection.Account, req.RequiredTransport) {
+					if selection.ReleaseFunc != nil {
+						selection.ReleaseFunc()
+					}
+					selection = nil
+				}
+			}
+			if selection != nil && selection.Account != nil {
+				decision.Layer = openAIAccountScheduleLayerPreviousResponse
+				decision.StickyPreviousHit = true
+				decision.SelectedAccountID = selection.Account.ID
+				decision.SelectedAccountType = selection.Account.Type
+				if req.SessionHash != "" {
+					_ = s.service.BindStickySession(ctx, req.GroupID, req.SessionHash, selection.Account.ID)
+				}
+				return selection, decision, nil
+			}
+		}
+	}
+
+	breakStickyReq := req
+	breakStickyReq.BreakStickyOnly = true
+	breakStickyReq.BreakStickyKind = openAIAccountScheduleLayerSessionSticky
+	selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, breakStickyReq)
+	if err != nil && !isNoAvailableOpenAIAccountSelectionError(err) {
+		decision.Layer = openAIAccountScheduleLayerLoadBalance
+		decision.CandidateCount = candidateCount
+		decision.TopK = topK
+		decision.LoadSkew = loadSkew
+		return nil, decision, err
+	}
+	if selection != nil && selection.Account != nil {
+		decision.Layer = openAIAccountScheduleLayerLoadBalance
+		decision.CandidateCount = candidateCount
+		decision.TopK = topK
+		decision.LoadSkew = loadSkew
+		decision.SelectedAccountID = selection.Account.ID
+		decision.SelectedAccountType = selection.Account.Type
+		return selection, decision, nil
 	}
 
 	if !req.StickyWeighted {
@@ -428,7 +474,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
-	selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, req)
+	selection, candidateCount, topK, loadSkew, err = s.selectByLoadBalance(ctx, req)
 	decision.Layer = openAIAccountScheduleLayerLoadBalance
 	decision.CandidateCount = candidateCount
 	decision.TopK = topK
@@ -1355,6 +1401,9 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			filterStats.exclude("platform_mismatch")
 			continue
 		}
+		if req.BreakStickyOnly && !account.BreaksOpenAISticky(req.BreakStickyKind) {
+			continue
+		}
 		if s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
 			filterStats.exclude("runtime_blocked")
 			continue
@@ -1634,6 +1683,18 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 	}
 
 	return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked, filterStats.summary("selection_order_exhausted"))
+}
+
+func isNoAvailableOpenAIAccountSelectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrNoAvailableAccounts) || errors.Is(err, ErrNoAvailableCompactAccounts) {
+		return true
+	}
+	message := err.Error()
+	return strings.Contains(message, "no available OpenAI accounts") ||
+		strings.Contains(message, "no available accounts")
 }
 
 func (s *defaultOpenAIAccountScheduler) isAccountTransportCompatible(account *Account, requiredTransport OpenAIUpstreamTransport) bool {

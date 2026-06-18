@@ -170,6 +170,7 @@ const (
 	gatewayFailoverPolicyDefaultHTTP5xxThreshold         = 3
 	gatewayFailoverPolicyDefaultHTTP5xxWindowSeconds     = 30
 	gatewayFailoverPolicyDefaultHTTP5xxCooldownSecond    = 120
+	gatewayFailoverPolicyGetChannelFailedCooldownSec     = 3600
 	gatewayFailoverPolicyDefaultTransportThreshold       = 3
 	gatewayFailoverPolicyDefaultTransportWindowSecond    = 30
 	gatewayFailoverPolicyDefaultTransportCooldownSec     = 120
@@ -278,6 +279,31 @@ func defaultGatewayFailoverRulesFromLegacy(settings *GatewayFailoverPolicySettin
 				CooldownSeconds:     structuredCooldownSeconds,
 				JitterPercent:       jitter,
 				Reason:              "request_too_large_tier_limit",
+				ClearSessionBinding: true,
+			},
+		},
+		{
+			ID:          "openai_get_channel_failed_overloaded",
+			Name:        "上游模型负载已满",
+			Description: "匹配 New API get_channel_failed 且提示模型负载达到上限的响应，立即 failover 并冷却 1 小时",
+			Enabled:     true,
+			Priority:    130,
+			Event:       GatewayFailoverRuleEventHTTPResponse,
+			Match: GatewayFailoverRuleMatch{
+				StatusRanges: []GatewayFailoverStatusRange{{Min: 400, Max: 599}},
+				JSONLogic:    GatewayFailoverRuleLogicAll,
+				JSONConditions: []GatewayFailoverJSONCondition{
+					{Paths: []string{"error.code", "code"}, Op: GatewayFailoverRuleOpEquals, Value: "get_channel_failed"},
+					{Paths: []string{"error.type", "type"}, Op: GatewayFailoverRuleOpEquals, Value: "new_api_error"},
+					{Paths: []string{"error.message", "message"}, Op: GatewayFailoverRuleOpContains, Value: "负载已经达到上限"},
+				},
+			},
+			Action: GatewayFailoverRuleAction{
+				Failover:            true,
+				CooldownScope:       GatewayFailoverCooldownScopeRuntime,
+				CooldownSeconds:     gatewayFailoverPolicyGetChannelFailedCooldownSec,
+				JitterPercent:       0,
+				Reason:              "get_channel_failed_overloaded",
 				ClearSessionBinding: true,
 			},
 		},

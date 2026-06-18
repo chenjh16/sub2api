@@ -138,6 +138,8 @@ docs/*
 !docs/ASYNC_IMAGE_TASKS.md
 !docs/legal/
 !docs/legal/*.md
+!docs/sub2api-local-installation.md
+!docs/sub2api-mainline-functional-changes.md
 .serena/
 .codex/
 frontend/coverage/

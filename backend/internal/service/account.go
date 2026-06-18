@@ -110,9 +110,12 @@ const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
 const GrokMediaEligibleExtraKey = "grok_media_eligible"
 
 const (
-	OpenAIAuthModePersonalAccessToken = "personalAccessToken"
-	openAIAuthModeCredentialKey       = "auth_mode"
-	openAIAuthModeLegacyCredentialKey = "openai_auth_mode"
+	OpenAIAuthModePersonalAccessToken       = "personalAccessToken"
+	openAIAuthModeCredentialKey             = "auth_mode"
+	openAIAuthModeLegacyCredentialKey       = "openai_auth_mode"
+	accountExtraBreakStickySession          = "break_sticky_session"
+	accountExtraBreakStickySessionHash      = "break_sticky_session_hash"
+	accountExtraBreakStickyPreviousResponse = "break_sticky_previous_response"
 )
 
 func isOpenAIPersonalAccessTokenAuthMode(value string) bool {
@@ -1217,6 +1220,34 @@ func (a *Account) IsOpenAILongContextBillingEnabled() bool {
 	}
 	enabled, ok := a.Extra[openAILongContextBillingEnabledKey].(bool)
 	return ok && enabled
+}
+
+// BreaksStickySession reports whether this OpenAI account should bypass normal
+// session_hash sticky routing when it is otherwise compatible and schedulable.
+func (a *Account) BreaksStickySession() bool {
+	if a == nil || !a.IsOpenAI() {
+		return false
+	}
+	return resolveAccountExtraBool(a.Extra, accountExtraBreakStickySessionHash) ||
+		resolveAccountExtraBool(a.Extra, accountExtraBreakStickySession)
+}
+
+// BreaksStickyPreviousResponse reports whether this OpenAI account should bypass
+// previous_response_id sticky routing when it is otherwise compatible and schedulable.
+func (a *Account) BreaksStickyPreviousResponse() bool {
+	if a == nil || !a.IsOpenAI() {
+		return false
+	}
+	return resolveAccountExtraBool(a.Extra, accountExtraBreakStickyPreviousResponse)
+}
+
+func (a *Account) BreaksOpenAISticky(kind string) bool {
+	switch kind {
+	case openAIAccountScheduleLayerPreviousResponse:
+		return a.BreaksStickyPreviousResponse()
+	default:
+		return a.BreaksStickySession()
+	}
 }
 
 func (a *Account) IsAnthropic() bool {

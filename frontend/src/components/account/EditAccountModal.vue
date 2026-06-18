@@ -328,6 +328,75 @@
           </div>
         </div>
 
+        <!-- OpenAI 打破粘性策略 -->
+        <div
+          v-if="account?.platform === 'openai'"
+          class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        >
+          <div class="flex items-center justify-between gap-4">
+            <div class="min-w-0">
+              <label class="input-label mb-0">{{ t('admin.accounts.openai.breakStickySession') }}</label>
+              <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.openai.breakStickySessionDesc') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="openai-break-sticky-session-toggle"
+              @click="breakStickySessionEnabled = !breakStickySessionEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                breakStickySessionEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  breakStickySessionEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+          <div
+            v-if="breakStickySessionEnabled"
+            class="mt-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50/70 p-3 dark:border-dark-600 dark:bg-dark-800/40"
+          >
+            <label class="flex cursor-pointer items-start gap-3 rounded-md p-2 transition-colors hover:bg-white dark:hover:bg-dark-700/50">
+              <input
+                v-model="breakStickySessionHashEnabled"
+                type="checkbox"
+                class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500 dark:bg-dark-700"
+              />
+              <span class="min-w-0">
+                <span class="block text-sm font-medium text-gray-700 dark:text-gray-200">
+                  {{ t('admin.accounts.openai.breakStickySessionHash') }}
+                </span>
+                <span class="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.openai.breakStickySessionHashDesc') }}
+                </span>
+              </span>
+            </label>
+            <label class="flex cursor-pointer items-start gap-3 rounded-md p-2 transition-colors hover:bg-white dark:hover:bg-dark-700/50">
+              <input
+                v-model="breakStickyPreviousResponseEnabled"
+                type="checkbox"
+                class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500 dark:bg-dark-700"
+              />
+              <span class="min-w-0">
+                <span class="block text-sm font-medium text-gray-700 dark:text-gray-200">
+                  {{ t('admin.accounts.openai.breakStickyPreviousResponse') }}
+                </span>
+                <span class="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.openai.breakStickyPreviousResponseDesc') }}
+                </span>
+              </span>
+            </label>
+            <p class="text-xs leading-5 text-amber-600 dark:text-amber-400">
+              {{ t('admin.accounts.openai.breakStickyAdvancedHint') }}
+            </p>
+          </div>
+        </div>
+
         <!-- Custom Error Codes Section -->
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
@@ -1450,7 +1519,6 @@
         <input v-model="expiresAtInput" type="datetime-local" class="input" />
         <p class="input-hint">{{ t('admin.accounts.expiresAtHint') }}</p>
       </div>
-
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
@@ -1481,7 +1549,76 @@
         </div>
       </div>
 
-      <!-- OpenAI Codex hosted image_generation bridge policy -->
+      <!-- OpenAI OAuth 打破粘性策略 -->
+      <div
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <div class="min-w-0">
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.breakStickySession') }}</label>
+            <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.breakStickySessionDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="openai-break-sticky-session-toggle"
+            @click="breakStickySessionEnabled = !breakStickySessionEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              breakStickySessionEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                breakStickySessionEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+        <div
+          v-if="breakStickySessionEnabled"
+          class="mt-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50/70 p-3 dark:border-dark-600 dark:bg-dark-800/40"
+        >
+          <label class="flex cursor-pointer items-start gap-3 rounded-md p-2 transition-colors hover:bg-white dark:hover:bg-dark-700/50">
+            <input
+              v-model="breakStickySessionHashEnabled"
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500 dark:bg-dark-700"
+            />
+            <span class="min-w-0">
+              <span class="block text-sm font-medium text-gray-700 dark:text-gray-200">
+                {{ t('admin.accounts.openai.breakStickySessionHash') }}
+              </span>
+              <span class="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.openai.breakStickySessionHashDesc') }}
+              </span>
+            </span>
+          </label>
+          <label class="flex cursor-pointer items-start gap-3 rounded-md p-2 transition-colors hover:bg-white dark:hover:bg-dark-700/50">
+            <input
+              v-model="breakStickyPreviousResponseEnabled"
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500 dark:bg-dark-700"
+            />
+            <span class="min-w-0">
+              <span class="block text-sm font-medium text-gray-700 dark:text-gray-200">
+                {{ t('admin.accounts.openai.breakStickyPreviousResponse') }}
+              </span>
+              <span class="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.openai.breakStickyPreviousResponseDesc') }}
+              </span>
+            </span>
+          </label>
+          <p class="text-xs leading-5 text-amber-600 dark:text-amber-400">
+            {{ t('admin.accounts.openai.breakStickyAdvancedHint') }}
+          </p>
+        </div>
+      </div>
+
+      <!-- OpenAI Codex 图片工具统一策略（自动注入 + 客户端显式携带） -->
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
@@ -2844,6 +2981,9 @@ const openaiPassthroughEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
 // OpenAI 订阅档位（Plus/Pro/Free）手动覆盖值,存于 credentials.plan_type;'' 表示清空/自动识别
 const editPlanType = ref<string>('')
+const breakStickySessionEnabled = ref(false)
+const breakStickySessionHashEnabled = ref(false)
+const breakStickyPreviousResponseEnabled = ref(false)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
@@ -3278,6 +3418,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openaiPassthroughEnabled.value = false
   openAILongContextBillingEnabled.value = false
   editPlanType.value = ''
+  breakStickySessionEnabled.value = false
+  breakStickySessionHashEnabled.value = false
+  breakStickyPreviousResponseEnabled.value = false
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
@@ -3298,6 +3441,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editPlanType.value = newAccount.type === 'oauth'
       ? readPlanType(newAccount.credentials as Record<string, unknown> | undefined)
       : ''
+    breakStickySessionHashEnabled.value =
+      extra?.break_sticky_session_hash === true || extra?.break_sticky_session === true
+    breakStickyPreviousResponseEnabled.value = extra?.break_sticky_previous_response === true
+    breakStickySessionEnabled.value =
+      breakStickySessionHashEnabled.value || breakStickyPreviousResponseEnabled.value
     openAICompactMode.value = (extra?.openai_compact_mode as OpenAICompactMode) || 'auto'
     if (newAccount.type === 'apikey') {
       openAIResponsesMode.value = normalizeOpenAIResponsesMode(extra?.openai_responses_mode)
@@ -3578,6 +3726,21 @@ watch(
   },
   { immediate: true }
 )
+
+watch([breakStickySessionHashEnabled, breakStickyPreviousResponseEnabled], () => {
+  if (!breakStickySessionEnabled.value) {
+    return
+  }
+  if (!breakStickySessionHashEnabled.value && !breakStickyPreviousResponseEnabled.value) {
+    breakStickySessionHashEnabled.value = true
+  }
+})
+
+watch(breakStickySessionEnabled, (enabled) => {
+  if (enabled && !breakStickySessionHashEnabled.value && !breakStickyPreviousResponseEnabled.value) {
+    breakStickySessionHashEnabled.value = true
+  }
+})
 
 // Model mapping helpers
 const addModelMapping = () => {
@@ -4530,6 +4693,23 @@ const handleSubmit = async () => {
         delete newExtra.openai_long_context_billing_enabled
       } else {
         newExtra.openai_long_context_billing_enabled = openAILongContextBillingEnabled.value
+      }
+      if (breakStickySessionEnabled.value) {
+        if (breakStickySessionHashEnabled.value) {
+          newExtra.break_sticky_session_hash = true
+        } else {
+          delete newExtra.break_sticky_session_hash
+        }
+        if (breakStickyPreviousResponseEnabled.value) {
+          newExtra.break_sticky_previous_response = true
+        } else {
+          delete newExtra.break_sticky_previous_response
+        }
+        delete newExtra.break_sticky_session
+      } else {
+        delete newExtra.break_sticky_session_hash
+        delete newExtra.break_sticky_previous_response
+        delete newExtra.break_sticky_session
       }
       if (openAICompactMode.value === 'auto') {
         delete newExtra.openai_compact_mode
