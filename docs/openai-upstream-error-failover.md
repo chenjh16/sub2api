@@ -47,6 +47,17 @@
 
 只有 `rate_limit_exceeded` 但没有 `limit_type=rpm` 的响应不会命中该规则，避免误伤其他业务错误。
 
+### 请求体超过上游套餐限制
+
+命中条件：
+
+- HTTP 状态码是 `413`
+- 响应体是合法 JSON
+- `error.code == "request_too_large"` 或顶层 `code == "request_too_large"`
+- `error.limit_bytes` 存在
+
+这类错误常见于同一个 session 连续请求时，某个上游账号只有较低 tier，无法承接较大的上下文。默认规则会把它视为当前节点能力不足：触发 failover，运行时冷却当前账号 10 分钟，并清理当前 OpenAI sticky session 绑定，让后续同 session 请求也能重新选择其他节点。
+
 ## 执行路径
 
 HTTP 错误响应进入以下流程：
@@ -74,6 +85,7 @@ HTTP `5xx` 不再由硬编码状态码兜底，而是由默认规则 `openai_htt
 ```text
 rate_limit_cooldown
 rate_limit_exceeded_rpm
+request_too_large_tier_limit
 http_5xx_threshold
 transport_threshold
 content_blocker
@@ -135,7 +147,7 @@ PUT /api/v1/admin/settings/gateway-failover-policy
 }
 ```
 
-`structured_400_*`、`http_5xx_*`、`transport_*` 等旧固定字段已经移除。默认策略直接以 `rules` 的新格式保存和返回；若配置为空，Sub2API 会使用内置的 5 条默认规则。
+`structured_400_*`、`http_5xx_*`、`transport_*` 等旧固定字段已经移除。默认策略直接以 `rules` 的新格式保存和返回；若配置为空，Sub2API 会使用内置的 6 条默认规则。
 
 默认规则：
 
@@ -143,6 +155,7 @@ PUT /api/v1/admin/settings/gateway-failover-policy
 | --- | --- | --- | --- |
 | `openai_structured_400_cooldown` | `http_response` | 100 | 识别 `rate_limit_cooldown` 或 `limit_type=cooldown`，failover，并运行时冷却 10 分钟 |
 | `openai_structured_400_rpm` | `http_response` | 110 | 识别 `rate_limit_exceeded + limit_type=rpm`，failover，并运行时冷却 10 分钟 |
+| `openai_request_too_large_tier_limit` | `http_response` | 120 | 识别 `413 request_too_large + error.limit_bytes`，failover，运行时冷却 10 分钟，并清理当前 OpenAI session 绑定 |
 | `openai_http_5xx_threshold` | `http_response` | 200 | `500-599` 除 `529` 外每次 failover；同账号 30 秒内连续 3 次后运行时冷却约 120 秒 |
 | `openai_transport_threshold` | `transport_error` | 300 | 瞬时网络错误每次 failover；同账号 30 秒内连续 3 次后运行时冷却约 120 秒 |
 | `openai_200_content_text` | `http_response` | 400 | 默认关闭；识别伪装成 `200 OK` 成功响应的维护、繁忙或公告文本，failover，并运行时冷却 10 分钟 |
@@ -171,6 +184,7 @@ PUT /api/v1/admin/settings/gateway-failover-policy
 | `action.cooldown_seconds` | 冷却时长，`runtime/temp_unsched` 时有效 |
 | `action.jitter_percent` | 冷却随机抖动比例 |
 | `action.reason` | 写入运行时冷却日志和调度阻断的原因 |
+| `action.clear_session_binding` | 命中后清理当前 OpenAI sticky session 绑定；适合账号能力不足或套餐限制类错误 |
 
 条件操作符：
 
