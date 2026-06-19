@@ -641,15 +641,22 @@ backend/internal/service/openai_response_content_blocker_test.go
 
 ## 5. 前端与后台设置变更
 
-本分支前端修改集中在两处：
+本分支前端修改集中在三类：
 
 1. 分组管理页新增 OpenAI 默认 `service_tier` 下拉框。
 2. 设置页“网关服务”新增自动故障转移策略卡片，200 内容公告文本作为其中一条默认规则编辑。
+3. 账号管理页新增列表高度最大化能力，并修复宽表撑出整页的问题。
 
 相关文件：
 
 - `frontend/src/views/admin/GroupsView.vue`
 - `frontend/src/views/admin/SettingsView.vue`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/components/layout/AppHeader.vue`
+- `frontend/src/components/layout/AppLayout.vue`
+- `frontend/src/components/layout/AppSidebar.vue`
+- `frontend/src/components/layout/TablePageLayout.vue`
+- `frontend/src/stores/accountPageUi.ts`
 - `frontend/src/api/admin/settings.ts`
 - `frontend/src/types/index.ts`
 - `frontend/src/i18n/locales/zh.ts`
@@ -662,6 +669,16 @@ UI 风格沿用现有后台：
 - 使用数字输入管理阈值、窗口、冷却和扫描上限。
 - 使用 JSON 条件组 textarea 管理复杂匹配条件。
 - 保存失败使用既有 `extractApiErrorMessage` 提示。
+
+账号管理页 UI 调整：
+
+- 顶栏右侧图标区域新增账号页专用工具栏收起/展开按钮；
+- 收起后隐藏筛选、账号操作按钮和未选中状态下的批量编辑栏，增加列表可见高度；
+- 收起状态持久化到 `localStorage`；
+- 左侧导航栏头部新增收起/展开按钮，收起状态下按钮覆盖 logo 区域中央；
+- 左侧导航栏展开宽度调整为 `184px`，收起宽度保持 `72px`；
+- 账号列表列顺序不变，“操作”列仍在最右侧 sticky 区域；
+- 页面和表格外层增加宽度约束，宽表只在表格内部横向滚动，不再撑出整个页面。
 
 ## 6. OpenAI 账号“打破粘性”调度
 
@@ -897,7 +914,13 @@ OpenAI 网关：
 
 - `frontend/src/views/admin/GroupsView.vue`
 - `frontend/src/views/admin/SettingsView.vue`
+- `frontend/src/views/admin/AccountsView.vue`
 - `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/layout/AppHeader.vue`
+- `frontend/src/components/layout/AppLayout.vue`
+- `frontend/src/components/layout/AppSidebar.vue`
+- `frontend/src/components/layout/TablePageLayout.vue`
+- `frontend/src/stores/accountPageUi.ts`
 - `frontend/src/api/admin/settings.ts`
 - `frontend/src/types/index.ts`
 - `frontend/src/i18n/locales/zh.ts`
