@@ -87,6 +87,7 @@ temp/
 .cache/
 .dev/
 .serena/
+.playwright-cli/
 
 # ===================
 # 构建产物
