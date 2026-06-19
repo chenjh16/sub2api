@@ -2,7 +2,7 @@
   <aside
     class="sidebar"
     :class="[
-      sidebarCollapsed ? 'w-[72px]' : 'w-64',
+      sidebarCollapsed ? 'w-[72px]' : 'w-[184px]',
       { '-translate-x-full lg:translate-x-0': !mobileOpen }
     ]"
   >
@@ -19,6 +19,18 @@
         <!-- Version Badge -->
         <VersionBadge :version="siteVersion" />
       </div>
+      <button
+        type="button"
+        class="sidebar-header-toggle"
+        :class="{ 'sidebar-header-toggle-collapsed': sidebarCollapsed }"
+        :title="sidebarCollapsed ? t('nav.expand') : t('nav.collapse')"
+        :aria-label="sidebarCollapsed ? t('nav.expand') : t('nav.collapse')"
+        :aria-pressed="sidebarCollapsed"
+        @click="toggleSidebar"
+      >
+        <ChevronDoubleLeftIcon v-if="!sidebarCollapsed" class="h-4 w-4" />
+        <ChevronDoubleRightIcon v-else class="h-4 w-4" />
+      </button>
     </div>
 
     <!-- Navigation -->
@@ -898,6 +910,12 @@ onMounted(() => {
   min-width: 2.25rem;
 }
 
+.sidebar-header {
+  position: relative;
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+
 .sidebar-header-collapsed {
   gap: 0;
   padding-left: 1.125rem;
@@ -907,6 +925,7 @@ onMounted(() => {
 .sidebar-brand {
   min-width: 0;
   flex: 1 1 auto;
+  padding-right: 2.35rem;
   white-space: nowrap;
   transition:
     max-width 0.22s ease,
@@ -917,6 +936,7 @@ onMounted(() => {
 
 .sidebar-brand-collapsed {
   max-width: 0;
+  padding-right: 0;
   overflow: hidden;
   opacity: 0;
   transform: translateX(-4px);
@@ -925,9 +945,76 @@ onMounted(() => {
 
 .sidebar-brand-title {
   display: block;
+  font-size: 1rem;
+  line-height: 1.35rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sidebar-header-toggle {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-50%);
+  border-radius: 0.75rem;
+  color: rgb(107 114 128);
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.sidebar-header-toggle:hover {
+  background: rgb(243 244 246);
+  color: rgb(17 24 39);
+}
+
+.sidebar-header-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(20 184 166 / 0.22);
+}
+
+.dark .sidebar-header-toggle {
+  color: rgb(156 163 175);
+}
+
+.dark .sidebar-header-toggle:hover {
+  background: rgb(31 41 55);
+  color: rgb(255 255 255);
+}
+
+.sidebar-header-toggle-collapsed {
+  left: 50%;
+  right: auto;
+  width: 2.75rem;
+  height: 2.75rem;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgb(229 231 235);
+  background: rgb(255 255 255);
+  box-shadow: 0 6px 16px rgb(15 23 42 / 0.12);
+}
+
+.sidebar-header-toggle-collapsed:hover {
+  transform: translate(-50%, -50%);
+}
+
+.dark .sidebar-header-toggle-collapsed {
+  border-color: rgb(31 41 55);
+  background: rgb(17 24 39);
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.28);
+}
+
+.sidebar-header-toggle-collapsed :deep(svg) {
+  width: 1.25rem;
+  height: 1.25rem;
 }
 
 .sidebar-link-collapsed {

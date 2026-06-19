@@ -23,6 +23,22 @@
 
       <!-- Right: Announcements + Docs + Language + Subscriptions + Balance + User Dropdown -->
       <div class="flex items-center gap-3">
+        <!-- Account list compact toggle -->
+        <button
+          v-if="showAccountToolbarToggle"
+          type="button"
+          class="flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500/30 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+          :class="{
+            'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300': accountPageUiStore.toolbarCollapsed
+          }"
+          :title="accountToolbarToggleTitle"
+          :aria-label="accountToolbarToggleLabel"
+          :aria-pressed="accountPageUiStore.toolbarCollapsed"
+          @click="accountPageUiStore.toggleToolbarCollapsed"
+        >
+          <Icon :name="accountToolbarToggleIcon" size="sm" />
+        </button>
+
         <!-- Announcement Bell -->
         <AnnouncementBell v-if="user" />
 
@@ -218,6 +234,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
+import { useAccountPageUiStore } from '@/stores/accountPageUi'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import SubscriptionProgressMini from '@/components/common/SubscriptionProgressMini.vue'
 import AnnouncementBell from '@/components/common/AnnouncementBell.vue'
@@ -229,6 +246,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const adminSettingsStore = useAdminSettingsStore()
+const accountPageUiStore = useAccountPageUiStore()
 const onboardingStore = useOnboardingStore()
 
 const user = computed(() => authStore.user)
@@ -285,6 +303,21 @@ const pageDescription = computed(() => {
   }
   return (route.meta.description as string) || ''
 })
+
+const showAccountToolbarToggle = computed(() => route.name === 'AdminAccounts')
+const accountToolbarToggleIcon = computed<'chevronDown' | 'chevronUp'>(() =>
+  accountPageUiStore.toolbarCollapsed ? 'chevronDown' : 'chevronUp'
+)
+const accountToolbarToggleLabel = computed(() =>
+  accountPageUiStore.toolbarCollapsed
+    ? t('admin.accounts.expandToolbar')
+    : t('admin.accounts.collapseToolbar')
+)
+const accountToolbarToggleTitle = computed(() =>
+  accountPageUiStore.toolbarCollapsed
+    ? t('admin.accounts.expandToolbarHint')
+    : t('admin.accounts.collapseToolbarHint')
+)
 
 function toggleMobileSidebar() {
   appStore.toggleMobileSidebar()

@@ -703,6 +703,39 @@ BlockAccountScheduling(account, until, reason)
 - OpenAI API Key 账号中，“打破粘性”已移动到“池模式”后面；
 - OAuth 账号仍在通用区域展示该配置。
 
+### 账号管理页列表视图
+
+账号管理页新增“列表高度最大化”能力，并修正宽表导致整页横向溢出的问题。
+
+新增行为：
+
+- 在顶部右侧图标区域增加账号页专用工具栏收起/展开按钮；
+- 收起后隐藏账号页上方筛选、操作按钮区域，以及未选中账号时的批量编辑栏；
+- 收起状态写入 `localStorage`，刷新后保持；
+- 若已有选中账号，批量编辑栏仍会显示，避免用户丢失已选操作入口；
+- 左侧导航栏头部增加收起/展开按钮；
+- 展开状态下左侧导航栏宽度从主线默认 `16rem` 调整为 `184px`，收起状态保持 `72px`；
+- 收起状态下，左侧导航栏头部展开按钮覆盖在 logo 区域中央，避免按钮半遮挡 logo 的不协调状态。
+
+列表布局约束：
+
+- 账号列表列顺序保持原有设计，“操作”列仍位于最右侧；
+- “操作”列继续使用右侧 sticky 固定列，不移动到账号名称旁边；
+- 页面、主内容区、表格布局链路增加 `min-w-0` / `max-w-full` / `overflow-x-hidden` 约束；
+- 宽表只在表格内部产生横向滚动，不再撑出整个页面；
+- 首屏可直接看到右侧 sticky 操作列，编辑、删除、更多操作不需要滚动整个页面。
+
+相关文件：
+
+- `frontend/src/stores/accountPageUi.ts`
+- `frontend/src/components/layout/AppHeader.vue`
+- `frontend/src/components/layout/AppLayout.vue`
+- `frontend/src/components/layout/AppSidebar.vue`
+- `frontend/src/components/layout/TablePageLayout.vue`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/i18n/locales/zh.ts`
+- `frontend/src/i18n/locales/en.ts`
+
 ## 10. 数据库迁移
 
 本分支新增迁移：
@@ -761,7 +794,7 @@ curl http://127.0.0.1:18080/health
 当前本地二进制版本：
 
 ```text
-Sub2API 0.1.136
+Sub2API 0.1.137
 ```
 
 ## 12. 验证和测试覆盖
@@ -801,6 +834,26 @@ curl http://127.0.0.1:18080/health
 ```
 
 结果：通过。
+
+账号管理页浏览器验证：
+
+```text
+URL: http://127.0.0.1:18080/admin/accounts
+viewport: 1280 x 720
+document.clientWidth: 1272
+document.scrollWidth: 1272
+body.clientWidth: 1272
+body.scrollWidth: 1272
+tableWrapper.clientWidth: 1010
+tableWrapper.scrollWidth: 1694
+```
+
+结论：
+
+- 页面整体没有横向溢出；
+- 宽表横向滚动被限制在表格内部；
+- “操作”列仍位于最右侧 sticky 区域；
+- 首屏可见编辑、删除、更多操作按钮。
 
 ### 新增和更新的测试重点
 
@@ -975,7 +1028,13 @@ WHERE platform = 'openai';
 
 - `frontend/src/views/admin/GroupsView.vue`
 - `frontend/src/views/admin/SettingsView.vue`
+- `frontend/src/views/admin/AccountsView.vue`
 - `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/layout/AppHeader.vue`
+- `frontend/src/components/layout/AppLayout.vue`
+- `frontend/src/components/layout/AppSidebar.vue`
+- `frontend/src/components/layout/TablePageLayout.vue`
+- `frontend/src/stores/accountPageUi.ts`
 - `frontend/src/api/admin/settings.ts`
 - `frontend/src/types/index.ts`
 - `frontend/src/i18n/locales/zh.ts`
