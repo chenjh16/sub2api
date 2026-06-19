@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout :hide-filters="toolbarCollapsed">
       <template #filters>
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
           <AccountTableFilters
@@ -176,6 +176,7 @@
       </template>
       <template #table>
         <AccountBulkActionsBar
+          v-if="!toolbarCollapsed || selIds.length > 0"
           :selected-ids="selIds"
           :total-results="pagination.total"
           :selecting-all="selectingAllResults"
@@ -486,6 +487,7 @@ import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
+import { useAccountPageUiStore } from '@/stores/accountPageUi'
 import { adminAPI } from '@/api/admin'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
@@ -532,11 +534,13 @@ import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType,
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const accountPageUiStore = useAccountPageUiStore()
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
 const accountTableRef = ref<HTMLElement | null>(null)
 const dataTableRef = ref<InstanceType<typeof DataTable> | null>(null)
+const toolbarCollapsed = computed(() => accountPageUiStore.toolbarCollapsed)
 type AccountBulkEditTarget =
   | {
       mode: 'selected'
@@ -1107,6 +1111,12 @@ const isAnyModalOpen = computed(() => {
     showErrorPassthrough.value ||
     showTLSFingerprintProfiles.value
   )
+})
+
+watch(toolbarCollapsed, (collapsed) => {
+  if (!collapsed) return
+  showAutoRefreshDropdown.value = false
+  showAccountToolsDropdown.value = false
 })
 
 const enterAutoRefreshSilentWindow = () => {
