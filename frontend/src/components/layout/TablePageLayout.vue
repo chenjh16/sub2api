@@ -6,7 +6,7 @@
     </div>
 
     <!-- 固定区域：搜索和过滤器 -->
-    <div v-if="$slots.filters" class="layout-section-fixed">
+    <div v-if="$slots.filters && !hideFilters" class="layout-section-fixed">
       <slot name="filters" />
     </div>
 
@@ -27,6 +27,12 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 
+withDefaults(defineProps<{
+  hideFilters?: boolean
+}>(), {
+  hideFilters: false
+})
+
 const isMobile = ref(false)
 
 const checkMobile = () => {
@@ -46,25 +52,28 @@ onUnmounted(() => {
 <style scoped>
 /* 桌面端：Flexbox 布局 */
 .table-page-layout {
-  @apply flex flex-col gap-6;
+  @apply flex min-w-0 max-w-full flex-col gap-6;
   height: calc(100vh - 64px - 4rem); /* 减去 header + lg:p-8 的上下padding */
+  width: 100%;
+  overflow-x: hidden;
 }
 
 .layout-section-fixed {
-  @apply flex-shrink-0;
+  @apply min-w-0 max-w-full flex-shrink-0;
 }
 
 .layout-section-scrollable {
-  @apply flex-1 min-h-0 flex flex-col;
+  @apply flex min-h-0 min-w-0 max-w-full flex-1 flex-col;
 }
 
 /* 表格滚动容器 - 增强版表体滚动方案 */
 .table-scroll-container {
-  @apply flex flex-col overflow-hidden h-full bg-white dark:bg-dark-800 rounded-2xl border border-gray-200 dark:border-dark-700 shadow-sm;
+  @apply flex h-full min-w-0 max-w-full flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-800;
+  width: 100%;
 }
 
 .table-scroll-container :deep(.table-wrapper) {
-  @apply flex-1 overflow-x-auto overflow-y-auto;
+  @apply min-w-0 max-w-full flex-1 overflow-x-auto overflow-y-auto;
   /* 确保横向滚动条显示在最底部 */
   scrollbar-gutter: stable;
 }
