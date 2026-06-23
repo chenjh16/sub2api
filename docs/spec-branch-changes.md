@@ -935,3 +935,10 @@ OpenAI 网关：
 - `backend/internal/service/gateway_failover_policy_settings_test.go`
 - `backend/internal/service/openai_response_content_blocker_test.go`
 - `backend/internal/service/openai_account_scheduler_test.go`
+
+文档：
+
+- `docs/openai-default-service-tier.md`
+- `docs/openai-upstream-error-failover.md`
+- `docs/spec-rebase-guide.md`
+- `docs/sub2api-mainline-functional-changes.md`
