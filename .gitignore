@@ -134,6 +134,10 @@ docs/*
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
 !docs/legal/
 !docs/legal/*.md
+!docs/openai-default-service-tier.md
+!docs/openai-upstream-error-failover.md
+!docs/spec-branch-changes.md
+!docs/spec-rebase-guide.md
 !docs/sub2api-local-installation.md
 !docs/sub2api-mainline-functional-changes.md
 .serena/
