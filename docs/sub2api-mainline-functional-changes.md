@@ -2,15 +2,15 @@
 
 本文档汇总当前工作区对 Sub2API 主线分支的所有功能性调整、优化和更新，便于后续代码审阅、部署验证、回滚排障和运维配置。
 
-记录时间：2026-06-18
+记录时间：2026-06-23
 
 对比基线：
 
 - 主线分支：`main`
-- 主线提交：`e34ad2b1`
+- 主线提交：rebase 前为 `4a5665da`，后续以本地 `main` / `upstream/main` 为准
 - 当前功能分支：`spec`
-- 当前提交：`2530c6c0`
-- 额外范围：包含当前工作区尚未提交的功能改动，尤其是 OpenAI 池模式网络错误同账号重试、账号编辑页“打破粘性”位置调整。
+- 当前提交：以 `git log -1 --oneline` 为准
+- 额外范围：包含当前 `spec` 分支已提交的 OpenAI 网关、调度、后台设置和账号管理 UI 功能。
 
 ## 1. 整体目标
 
@@ -1045,5 +1045,6 @@ WHERE platform = 'openai';
 - `docs/openai-default-service-tier.md`
 - `docs/openai-upstream-error-failover.md`
 - `docs/spec-branch-changes.md`
+- `docs/spec-rebase-guide.md`
 - `docs/sub2api-local-installation.md`
 - `docs/sub2api-mainline-functional-changes.md`
