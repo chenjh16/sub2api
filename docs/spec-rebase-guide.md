@@ -10,9 +10,9 @@
 
 当前分支：`spec`
 
-当前上一次已知主线基线：`upstream/main` / `origin/main` `4a5665da`，版本 `v0.1.137`
+当前上一次已知主线基线：`upstream/main` / `origin/main` `85a3b122`，版本 `v0.1.138`
 
-当前 `spec` 顶部提交：`f5d2d0fc feat(frontend): improve account list viewport`
+当前 `spec` 顶部提交：以 `git log -1 --oneline` 为准。本指南最近一次随 `v0.1.138` rebase 更新。
 
 注意：`origin/spec` 仍保留早期远端提交，当前本地 `spec` 已包含更完整的功能实现。后续推送 `spec` 大概率需要 `--force-with-lease`，不要把旧 `origin/spec` 反向 merge 回本地。
 
