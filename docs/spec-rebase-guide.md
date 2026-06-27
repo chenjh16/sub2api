@@ -6,13 +6,13 @@
 2. 这些能力分布在哪些模块，rebase 时哪些文件最容易冲突。
 3. 冲突解决后必须验证哪些语义，避免“能编译但行为变了”。
 
-记录时间：2026-06-23
+记录时间：2026-06-27
 
 当前分支：`spec`
 
-当前上一次已知主线基线：`upstream/main` / `origin/main` `85a3b122`，版本 `v0.1.138`
+当前上一次已知主线基线：`upstream/main` / `origin/main` `c2754222`，版本 `v0.1.139`
 
-当前 `spec` 顶部提交：以 `git log -1 --oneline` 为准。本指南最近一次随 `v0.1.138` rebase 更新。
+当前 `spec` 顶部提交：以 `git log -1 --oneline` 为准。本指南最近一次随 `v0.1.139` rebase 更新。
 
 注意：`origin/spec` 仍保留早期远端提交，当前本地 `spec` 已包含更完整的功能实现。后续推送 `spec` 大概率需要 `--force-with-lease`，不要把旧 `origin/spec` 反向 merge 回本地。
 
@@ -445,3 +445,41 @@ curl -fsS http://127.0.0.1:18080/health
 - 若调整 UI 入口，同步更新 `docs/spec-branch-changes.md`。
 
 文档更新应和代码行为保持一致。不要只更新功能总览而遗漏冲突处理语义，否则后续 rebase 会再次踩同样的坑。
+
+## 8. 2026-06-27 v0.1.139 Rebase 记录
+
+本次主线从 `85a3b122` 更新到 `c2754222`，版本从 `v0.1.138` 更新到 `v0.1.139`。上游新增和调整集中在以下区域：
+
+- Grok 订阅、OAuth、配额探测、Grok 网关和 quota readiness。
+- OpenAI Codex 检测加固、Personal Access Token 认证、app-server 客户端识别、GPT-5.5 Codex 默认 instructions。
+- OpenAI chat/completions 传输错误 failover、工具 schema 兼容修复、函数参数去重。
+- 无可用账号支持模型时返回 `404 model_not_found`，而不是泛化 `503`。
+- 支付、用量缓存 token 展示、余额透支保护和订阅返佣等后台功能。
+
+本次冲突与处理决策：
+
+- `backend/internal/service/setting_service.go`：
+  - 保留上游 `codexRestrictionPolicy`、cyber session block、quota auto pause 等缓存。
+  - 在早期 `feat(gateway): add 200 response content blocker` 提交的冲突阶段，临时保留 spec 的旧 `gatewayContentBlockerCache`，让 patch stack 能继续重放。
+  - 最终状态仍以 `gatewayFailoverPolicyCache` 为唯一运行时配置缓存；后续 `merge 200 content failover into policy rules` 提交会移除旧 `gatewayContentBlockerCache` 和独立 setting。
+  - 不恢复旧的 `openAIAllowCodexPlugin` 缓存字段；该能力已被上游更完整的 Codex restriction policy 取代。
+- `backend/internal/service/openai_gateway_service.go`：
+  - 流式响应中先执行 spec 的 200 内容拦截观察，再执行上游新增的 `sanitizeOpenAIResponseFailedEventForClient`，避免脱敏后漏判上游维护/公告文本。
+  - 旧选择路径保留 spec 语义：账号级“打破普通 session 粘性”优先于普通 sticky session。
+  - `selectBestOpenAIBreakStickyAccount` 跟随上游签名补充 `platform` 参数，并继续走上游 OpenAI/Grok 兼容平台过滤。
+- `backend/internal/service/openai_gateway_chat_completions_raw.go`：
+  - Grok 账号保留上游专属 quota snapshot、Grok error handling 和 failover 逻辑。
+  - 非 Grok 账号继续调用 spec 的 `shouldFailoverOpenAIUpstreamResponseWithContext`，确保管理员可编辑 failover policy 生效。
+- `backend/internal/service/openai_account_scheduler.go`：
+  - `previous_response_id` 粘性仍按上游限制只对 OpenAI 平台生效。
+  - 在读取旧 `previous_response_id` 绑定前，先尝试 spec 的“打破 previous_response_id 粘性”账号。
+- `backend/internal/service/account.go`：
+  - 同时保留上游 `personalAccessToken` auth mode 常量和 spec 的三类打破粘性 extra 字段。
+
+本次 rebase 后需要重点验证：
+
+- OpenAI Codex 检测和 spec 的 `service_tier` 注入顺序不互相覆盖。
+- Grok raw chat/completions 错误处理不被 OpenAI failover policy 误接管。
+- OpenAI raw chat/completions 非 Grok 路径仍可由 `gateway_failover_policy_settings` 触发 failover。
+- `response.failed` 事件脱敏不会绕过 200 内容拦截规则。
+- 账号列表 UI 仍保持“操作”列在最右侧，页面级横向溢出不恢复。
