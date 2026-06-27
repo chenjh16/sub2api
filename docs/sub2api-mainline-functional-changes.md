@@ -2,13 +2,13 @@
 
 本文档汇总当前工作区对 Sub2API 主线分支的所有功能性调整、优化和更新，便于后续代码审阅、部署验证、回滚排障和运维配置。
 
-记录时间：2026-06-23
+记录时间：2026-06-27
 
 对比基线：
 
 - 主线分支：`main`
-- 主线提交：`85a3b122`
-- 主线版本：`v0.1.138`
+- 主线提交：`c2754222`
+- 主线版本：`v0.1.139`
 - 当前功能分支：`spec`
 - 当前提交：以 `git log -1 --oneline` 为准
 - 额外范围：包含当前 `spec` 分支已提交的 OpenAI 网关、调度、后台设置和账号管理 UI 功能。
@@ -795,7 +795,7 @@ curl http://127.0.0.1:18080/health
 当前本地二进制版本：
 
 ```text
-Sub2API 0.1.138
+Sub2API 0.1.139
 ```
 
 ## 12. 验证和测试覆盖
@@ -941,7 +941,27 @@ TG
 - `get_channel_failed` 默认规则只匹配“负载已经达到上限”，不会覆盖所有通道获取失败；
 - `request_too_large` 默认规则要求 `error.limit_bytes` 存在，避免误伤普通请求参数错误。
 
-## 15. 回滚和关闭方式
+## 15. v0.1.139 主线同步说明
+
+2026-06-27 已将 `spec` rebase 到上游 `main` / `origin/main` / `upstream/main` 的 `c2754222`，对应版本 `v0.1.139`。
+
+本次主线新增功能较多，主要包括：
+
+- Grok 订阅、OAuth、配额探测、Grok 网关转发和 quota readiness。
+- OpenAI Codex 检测加固、Personal Access Token 认证、app-server 客户端识别、GPT-5.5 Codex 默认 instructions。
+- OpenAI chat/completions transport error failover、工具 schema 兼容修复、函数调用参数去重。
+- 无可用账号支持模型时返回 `404 model_not_found`。
+- 支付、用量缓存 token 展示、余额透支保护、订阅返佣等后台能力。
+
+与 `spec` 功能的交叉处理：
+
+- `gateway_failover_policy_settings` 仍是 OpenAI 自动故障转移策略的唯一配置入口；旧 `gateway_content_blocker_settings` 不再作为独立设置恢复。
+- OpenAI raw chat/completions 的非 Grok 路径继续走管理员可编辑 failover policy；Grok 路径保留上游专属 error/quota 处理。
+- 流式 `response.failed` 事件会先被 200 内容拦截观察，再执行上游新增的客户端脱敏，避免维护公告类文本漏判。
+- 账号级“打破粘性”仍优先于普通 session sticky；`previous_response_id` 粘性和上游行为保持一致，仅在 OpenAI 平台上生效。
+- 上游新增的 Personal Access Token auth mode 与 `spec` 的打破粘性 extra 字段同时保留。
+
+## 16. 回滚和关闭方式
 
 ### 关闭分组默认 service_tier
 
@@ -991,7 +1011,7 @@ WHERE platform = 'openai';
 502
 ```
 
-## 16. 主要文件索引
+## 17. 主要文件索引
 
 ### 数据库和 Ent
 
