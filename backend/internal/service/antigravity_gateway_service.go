@@ -369,7 +369,7 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 }
 
 // TestConnectionWithPrompt 测试 Antigravity 账号连接，支持为图片生成模型指定测试提示词。
-func (s *AntigravityGatewayService) TestConnectionWithPrompt(ctx context.Context, account *Account, modelID string, prompt string) (*TestConnectionResult, error) {
+func (s *AntigravityGatewayService) TestConnectionWithPrompt(ctx context.Context, account *Account, modelID string, prompt string, locale ...string) (*TestConnectionResult, error) {
 
 	// 获取 token
 	if s.tokenProvider == nil {
@@ -389,6 +389,10 @@ func (s *AntigravityGatewayService) TestConnectionWithPrompt(ctx context.Context
 	mappedModel := s.getMappedModel(account, modelID)
 	if mappedModel == "" {
 		return nil, fmt.Errorf("model %s not in whitelist", modelID)
+	}
+	// Localize text probes after mapping so image aliases retain image prompts.
+	if !isImageGenerationModel(mappedModel) && len(locale) > 0 {
+		prompt = normalizeTextTestPromptForLocale(prompt, firstAccountTestLocale(locale))
 	}
 
 	// 构建请求体
