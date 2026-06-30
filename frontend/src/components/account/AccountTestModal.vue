@@ -467,7 +467,8 @@ const startTest = async () => {
       body: JSON.stringify({
         model_id: selectedModelId.value,
         prompt: supportsPromptInput.value ? currentTestPrompt.value : '',
-        mode: isOpenAIAccount.value ? testMode.value : 'default'
+        mode: isOpenAIAccount.value ? testMode.value : 'default',
+        locale: locale.value
       }),
       signal: abortController.signal
     })

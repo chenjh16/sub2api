@@ -449,10 +449,12 @@ const startTest = async () => {
     const requestBody: {
       model_id: string
       prompt: string
+      locale: string
       mode?: 'default' | 'compact'
     } = {
       model_id: selectedModelId.value,
-      prompt: currentTestPrompt.value
+      prompt: currentTestPrompt.value,
+      locale: locale.value
     }
     if (isOpenAIAccount.value) {
       requestBody.mode = testMode.value
