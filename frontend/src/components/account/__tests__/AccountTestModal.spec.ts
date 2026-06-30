@@ -150,7 +150,8 @@ describe('AccountTestModal', () => {
     const [, options] = (global.fetch as any).mock.calls[0]
     expect(JSON.parse(options.body)).toMatchObject({
       model_id: 'gpt-5.4',
-      mode: 'compact'
+      mode: 'compact',
+      locale: 'en'
     })
   })
 
@@ -188,7 +189,8 @@ describe('AccountTestModal', () => {
     expect(JSON.parse(options.body)).toMatchObject({
       model_id: 'gpt-5.4',
       prompt: 'Tell me your model name',
-      mode: 'default'
+      mode: 'default',
+      locale: 'en'
     })
   })
 

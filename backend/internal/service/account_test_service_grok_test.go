@@ -28,6 +28,20 @@ type grokAccountTestRateLimitRepo struct {
 	resetAt          time.Time
 }
 
+func TestBuildGrokAccountTestResponsesBodyPreservesProbeAndLocalizedPrompts(t *testing.T) {
+	probeBody, err := buildGrokAccountTestResponsesBody("grok-4.5", "", "")
+	require.NoError(t, err)
+	require.Equal(t, grokQuotaProbeInput, gjson.GetBytes(probeBody, "input").String())
+
+	localizedBody, err := buildGrokAccountTestResponsesBody("grok-4.5", "", "zh-CN")
+	require.NoError(t, err)
+	require.Equal(t, defaultTextTestPromptZH, gjson.GetBytes(localizedBody, "input").String())
+
+	customBody, err := buildGrokAccountTestResponsesBody("grok-4.5", "请说明你的模型名称", "zh-CN")
+	require.NoError(t, err)
+	require.Equal(t, "请说明你的模型名称", gjson.GetBytes(customBody, "input").String())
+}
+
 func TestObserveGrokTestResponseClassifiesBodyOnlyQuotaErrors(t *testing.T) {
 	account := &Account{ID: 1901, Platform: PlatformGrok, Type: AccountTypeOAuth}
 	repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
