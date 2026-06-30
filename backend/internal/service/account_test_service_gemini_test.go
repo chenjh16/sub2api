@@ -38,6 +38,36 @@ func TestCreateGeminiTestPayload_ImageModel(t *testing.T) {
 	require.Equal(t, "1:1", parsed.GenerationConfig.ImageConfig.AspectRatio)
 }
 
+func TestCreateTextTestPayloadsUsePrompt(t *testing.T) {
+	t.Parallel()
+
+	claudePayload, err := createTestPayload("claude-sonnet-4-5", "你是什么模型？")
+	require.NoError(t, err)
+	claudeMessages := claudePayload["messages"].([]map[string]any)
+	claudeContent := claudeMessages[0]["content"].([]map[string]any)
+	require.Equal(t, "你是什么模型？", claudeContent[0]["text"])
+
+	openAIPayload := createOpenAITestPayload("gpt-5.4", false, "你是什么模型？")
+	openAIInput := openAIPayload["input"].([]map[string]any)
+	openAIContent := openAIInput[0]["content"].([]map[string]any)
+	require.Equal(t, "你是什么模型？", openAIContent[0]["text"])
+
+	chatPayload := createOpenAIChatCompletionsTestPayload("gpt-5.4", "")
+	chatMessages := chatPayload["messages"].([]map[string]any)
+	require.Equal(t, defaultTextTestPrompt, chatMessages[0]["content"])
+
+	geminiPayload := createGeminiTestPayload("gemini-2.5-pro", "你是什么模型？")
+	var geminiParsed struct {
+		Contents []struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"contents"`
+	}
+	require.NoError(t, json.Unmarshal(geminiPayload, &geminiParsed))
+	require.Equal(t, "你是什么模型？", geminiParsed.Contents[0].Parts[0].Text)
+}
+
 func TestProcessGeminiStream_EmitsImageEvent(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
