@@ -154,6 +154,7 @@ describe('AccountTestModal', () => {
     expect(JSON.parse(request.body)).toEqual({
       model_id: 'gpt-5.4',
       prompt: 'Tell me your model name',
+      locale: 'en',
       mode: 'default'
     })
   })
@@ -179,7 +180,8 @@ describe('AccountTestModal', () => {
     const [, request] = (global.fetch as any).mock.calls[0]
     expect(JSON.parse(request.body)).toEqual({
       model_id: 'gemini-3.1-flash-image',
-      prompt: 'draw a tiny orange cat astronaut'
+      prompt: 'draw a tiny orange cat astronaut',
+      locale: 'en'
     })
 
     const preview = wrapper.find('img[alt="test-image-1"]')
@@ -222,6 +224,7 @@ describe('AccountTestModal', () => {
     expect(JSON.parse(request.body)).toEqual({
       model_id: 'grok-4.3',
       prompt: 'What model are you?',
+      locale: 'en',
       mode: 'text'
     })
   })
@@ -256,6 +259,7 @@ describe('AccountTestModal', () => {
     expect(JSON.parse(request.body)).toMatchObject({
       model_id: 'gpt-5.4',
       prompt: 'What model are you?',
+      locale: 'en',
       mode: 'compact'
     })
   })
