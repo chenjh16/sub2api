@@ -69,6 +69,7 @@ type TestEvent struct {
 type AccountTestOptions struct {
 	ImageDataURL string
 	AudioDataURL string
+	Locale       string
 }
 
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
@@ -82,7 +83,9 @@ func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
 const maxAccountTestMediaBytes = 8 << 20
 
 const (
-	defaultTextTestPrompt        = "What model are you?"
+	defaultTextTestPromptEN      = "What model are you?"
+	defaultTextTestPromptZH      = "你是什么模型？"
+	defaultTextTestPrompt        = defaultTextTestPromptEN
 	defaultGeminiTextTestPrompt  = defaultTextTestPrompt
 	defaultGeminiImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
 	defaultOpenAIImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
@@ -106,10 +109,32 @@ const (
 )
 
 func normalizeTextTestPrompt(prompt string) string {
+	return normalizeTextTestPromptForLocale(prompt, "")
+}
+
+func normalizeTextTestPromptForLocale(prompt string, locale string) string {
 	if testPrompt := strings.TrimSpace(prompt); testPrompt != "" {
 		return testPrompt
 	}
+	if normalizeAccountTestLocale(locale) == "zh" {
+		return defaultTextTestPromptZH
+	}
 	return defaultTextTestPrompt
+}
+
+func normalizeAccountTestLocale(locale string) string {
+	normalized := strings.ToLower(strings.TrimSpace(locale))
+	if strings.HasPrefix(normalized, "zh") {
+		return "zh"
+	}
+	return "en"
+}
+
+func firstAccountTestLocale(locale []string) string {
+	if len(locale) == 0 {
+		return ""
+	}
+	return locale[0]
 }
 
 // isOpenAIImageModel checks if the model is an OpenAI image generation model (e.g. gpt-image-2).
@@ -223,12 +248,12 @@ func generateSessionString() (string, error) {
 }
 
 // createTestPayload creates a Claude Code style test request payload
-func createTestPayload(modelID string, prompt string) (map[string]any, error) {
+func createTestPayload(modelID string, prompt string, locale ...string) (map[string]any, error) {
 	sessionID, err := generateSessionString()
 	if err != nil {
 		return nil, err
 	}
-	testPrompt := normalizeTextTestPrompt(prompt)
+	testPrompt := normalizeTextTestPromptForLocale(prompt, firstAccountTestLocale(locale))
 
 	return map[string]any{
 		"model": modelID,
@@ -272,6 +297,7 @@ func createTestPayload(modelID string, prompt string) (map[string]any, error) {
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
 	ctx := c.Request.Context()
 	testOpts := firstAccountTestOptions(opts)
+	promptLocale := testOpts.Locale
 
 	// Get account
 	account, err := s.accountRepo.GetByID(ctx, accountID)
@@ -304,11 +330,11 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.IsOpenAI() {
-		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
+		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode), promptLocale)
 	}
 
 	if account.IsGemini() {
-		return s.testGeminiAccountConnection(c, account, modelID, prompt)
+		return s.testGeminiAccountConnection(c, account, modelID, prompt, promptLocale)
 	}
 
 	if account.Platform == PlatformGrok {
@@ -316,10 +342,10 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.Platform == PlatformAntigravity {
-		return s.routeAntigravityTest(c, account, modelID, prompt)
+		return s.routeAntigravityTest(c, account, modelID, prompt, promptLocale)
 	}
 
-	return s.testClaudeAccountConnection(c, account, modelID, prompt)
+	return s.testClaudeAccountConnection(c, account, modelID, prompt, promptLocale)
 }
 
 func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
@@ -344,8 +370,9 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection
-func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, locale ...string) error {
 	ctx := c.Request.Context()
+	promptLocale := firstAccountTestLocale(locale)
 
 	// Determine the model to use
 	testModelID := modelID
@@ -360,10 +387,10 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 
 	// Bedrock accounts use a separate test path
 	if account.IsBedrock() {
-		return s.testBedrockAccountConnection(c, ctx, account, testModelID, prompt)
+		return s.testBedrockAccountConnection(c, ctx, account, testModelID, prompt, promptLocale)
 	}
 	if account.Type == AccountTypeServiceAccount {
-		return s.testClaudeVertexServiceAccountConnection(c, ctx, account, testModelID, prompt)
+		return s.testClaudeVertexServiceAccountConnection(c, ctx, account, testModelID, prompt, promptLocale)
 	}
 
 	// Determine authentication method and API URL
@@ -403,7 +430,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	c.Writer.Flush()
 
 	// Create Claude Code style payload (same for all account types)
-	payload, err := createTestPayload(testModelID, prompt)
+	payload, err := createTestPayload(testModelID, prompt, promptLocale)
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
@@ -466,7 +493,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	return s.processClaudeStream(c, resp.Body)
 }
 
-func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string, prompt string) error {
+func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string, prompt string, locale ...string) error {
 	if mappedModel, matched := account.ResolveMappedModel(testModelID); matched {
 		testModelID = mappedModel
 	} else {
@@ -479,7 +506,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	payload, err := createTestPayload(testModelID, prompt)
+	payload, err := createTestPayload(testModelID, prompt, firstAccountTestLocale(locale))
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
@@ -535,7 +562,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 }
 
 // testBedrockAccountConnection tests a Bedrock (SigV4 or API Key) account using non-streaming invoke
-func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string, prompt string) error {
+func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string, prompt string, locale ...string) error {
 	region := bedrockRuntimeRegion(account)
 	resolvedModelID, ok := ResolveBedrockModelID(account, testModelID)
 	if !ok {
@@ -551,7 +578,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 	c.Writer.Flush()
 
 	// Create a minimal Bedrock-compatible payload (no stream, no cache_control)
-	testPrompt := normalizeTextTestPrompt(prompt)
+	testPrompt := normalizeTextTestPromptForLocale(prompt, firstAccountTestLocale(locale))
 	bedrockPayload := map[string]any{
 		"anthropic_version": "bedrock-2023-05-31",
 		"messages": []map[string]any{
@@ -639,9 +666,10 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 }
 
 // testOpenAIAccountConnection tests an OpenAI account's connection
-func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string) error {
+func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string, locale ...string) error {
 	ctx := c.Request.Context()
 	mode = normalizeAccountTestMode(mode)
+	promptLocale := firstAccountTestLocale(locale)
 
 	// Default to openai.DefaultTestModel for OpenAI testing
 	testModelID := modelID
@@ -712,7 +740,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 		}
 		if !openai_compat.ShouldUseResponsesAPI(account.Extra) {
-			return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, normalizedBaseURL, authToken)
+			return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, promptLocale, normalizedBaseURL, authToken)
 		}
 		apiURL = buildOpenAIResponsesURL(normalizedBaseURL)
 	} else {
@@ -732,7 +760,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if isOAuth {
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
-	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth, prompt)
+	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth, prompt, promptLocale)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -883,7 +911,7 @@ func (s *AccountTestService) testGrokAccountConnection(c *gin.Context, account *
 		if mapped := strings.TrimSpace(account.GetMappedModel(testModelID)); mapped != "" {
 			testModelID = mapped
 		}
-		return s.testGrokResponsesConnection(c, ctx, account, authToken, testModelID)
+		return s.testGrokResponsesConnection(c, ctx, account, authToken, testModelID, prompt, opts.Locale)
 	}
 
 	// mode == default: infer from model family (legacy UI / API clients).
@@ -901,7 +929,7 @@ func (s *AccountTestService) testGrokAccountConnection(c *gin.Context, account *
 	case isGrokVideoGenerationModel(testModelID):
 		return s.testGrokVideoGeneration(c, ctx, account, authToken, testModelID, resolveGrokVideoPrompt(prompt), opts)
 	default:
-		return s.testGrokResponsesConnection(c, ctx, account, authToken, testModelID)
+		return s.testGrokResponsesConnection(c, ctx, account, authToken, testModelID, prompt, opts.Locale)
 	}
 }
 
@@ -1087,7 +1115,7 @@ func (s *AccountTestService) observeGrokTestResponse(ctx context.Context, accoun
 	}
 }
 
-func (s *AccountTestService) testGrokResponsesConnection(c *gin.Context, ctx context.Context, account *Account, authToken, testModelID string) error {
+func (s *AccountTestService) testGrokResponsesConnection(c *gin.Context, ctx context.Context, account *Account, authToken, testModelID, prompt, locale string) error {
 	apiURL, err := buildGrokResponsesURL(account, s.cfg, s.settingService)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid Grok base URL: %s", err.Error()))
@@ -1095,7 +1123,7 @@ func (s *AccountTestService) testGrokResponsesConnection(c *gin.Context, ctx con
 
 	s.prepareGrokTestSSE(c)
 
-	payloadBytes, err := buildGrokQuotaProbeBody(testModelID)
+	payloadBytes, err := buildGrokAccountTestResponsesBody(testModelID, prompt, locale)
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create Grok test payload")
 	}
@@ -1124,6 +1152,17 @@ func (s *AccountTestService) testGrokResponsesConnection(c *gin.Context, ctx con
 	}
 
 	return s.processOpenAIStream(c, resp.Body)
+}
+
+func buildGrokAccountTestResponsesBody(model, prompt, locale string) ([]byte, error) {
+	if strings.TrimSpace(prompt) == "" && strings.TrimSpace(locale) == "" {
+		return buildGrokQuotaProbeBody(model)
+	}
+	return json.Marshal(map[string]any{
+		"model":  strings.TrimSpace(model),
+		"input":  normalizeTextTestPromptForLocale(prompt, locale),
+		"stream": true,
+	})
 }
 
 func (s *AccountTestService) testGrokImageGeneration(c *gin.Context, ctx context.Context, account *Account, authToken, modelID, prompt, imageDataURL string) error {
@@ -1962,6 +2001,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	account *Account,
 	testModelID string,
 	prompt string,
+	locale string,
 	normalizedBaseURL string,
 	authToken string,
 ) error {
@@ -1974,7 +2014,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
+	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt, locale)
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -2221,7 +2261,7 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 }
 
 // testGeminiAccountConnection tests a Gemini account's connection
-func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, locale ...string) error {
 	ctx := c.Request.Context()
 
 	// Determine the model to use
@@ -2248,7 +2288,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 	c.Writer.Flush()
 
 	// Create test payload (Gemini format)
-	payload := createGeminiTestPayload(testModelID, prompt)
+	payload := createGeminiTestPayload(testModelID, prompt, firstAccountTestLocale(locale))
 
 	// Build request based on account type
 	var req *http.Request
@@ -2295,19 +2335,20 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 
 // routeAntigravityTest 路由 Antigravity 账号的测试请求。
 // APIKey 类型走原生协议（与 gateway_handler 路由一致），OAuth/Upstream 走 CRS 中转。
-func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Account, modelID string, prompt string) error {
+func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Account, modelID string, prompt string, locale ...string) error {
+	promptLocale := firstAccountTestLocale(locale)
 	if account.Type == AccountTypeAPIKey {
 		if strings.HasPrefix(modelID, "gemini-") {
-			return s.testGeminiAccountConnection(c, account, modelID, prompt)
+			return s.testGeminiAccountConnection(c, account, modelID, prompt, promptLocale)
 		}
-		return s.testClaudeAccountConnection(c, account, modelID, prompt)
+		return s.testClaudeAccountConnection(c, account, modelID, prompt, promptLocale)
 	}
-	return s.testAntigravityAccountConnection(c, account, modelID, prompt)
+	return s.testAntigravityAccountConnection(c, account, modelID, prompt, promptLocale)
 }
 
 // testAntigravityAccountConnection tests an Antigravity account's connection
 // 支持 Claude 和 Gemini 两种协议，使用非流式请求
-func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, locale ...string) error {
 	ctx := c.Request.Context()
 
 	// 默认模型：Claude 使用 claude-sonnet-4-5，Gemini 使用 gemini-3-pro-preview
@@ -2331,7 +2372,7 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 
 	// 调用 AntigravityGatewayService.TestConnection（复用协议转换逻辑）
-	result, err := s.antigravityGatewayService.TestConnection(ctx, account, testModelID, prompt)
+	result, err := s.antigravityGatewayService.TestConnection(ctx, account, testModelID, normalizeTextTestPromptForLocale(prompt, firstAccountTestLocale(locale)))
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
 	}
@@ -2474,7 +2515,7 @@ func (s *AccountTestService) buildCodeAssistRequest(ctx context.Context, accessT
 
 // createGeminiTestPayload creates a minimal test payload for Gemini API.
 // Image models use the image-generation path so the frontend can preview the returned image.
-func createGeminiTestPayload(modelID string, prompt string) []byte {
+func createGeminiTestPayload(modelID string, prompt string, locale ...string) []byte {
 	if isImageGenerationModel(modelID) {
 		imagePrompt := strings.TrimSpace(prompt)
 		if imagePrompt == "" {
@@ -2501,10 +2542,7 @@ func createGeminiTestPayload(modelID string, prompt string) []byte {
 		return bytes
 	}
 
-	textPrompt := strings.TrimSpace(prompt)
-	if textPrompt == "" {
-		textPrompt = defaultGeminiTextTestPrompt
-	}
+	textPrompt := normalizeTextTestPromptForLocale(prompt, firstAccountTestLocale(locale))
 
 	payload := map[string]any{
 		"contents": []map[string]any{
@@ -2607,8 +2645,8 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 }
 
 // createOpenAITestPayload creates a test payload for OpenAI Responses API
-func createOpenAITestPayload(modelID string, isOAuth bool, prompt string) map[string]any {
-	testPrompt := normalizeTextTestPrompt(prompt)
+func createOpenAITestPayload(modelID string, isOAuth bool, prompt string, locale ...string) map[string]any {
+	testPrompt := normalizeTextTestPromptForLocale(prompt, firstAccountTestLocale(locale))
 	payload := map[string]any{
 		"model": modelID,
 		"input": []map[string]any{
@@ -2636,11 +2674,8 @@ func createOpenAITestPayload(modelID string, isOAuth bool, prompt string) map[st
 	return payload
 }
 
-func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[string]any {
-	testPrompt := strings.TrimSpace(prompt)
-	if testPrompt == "" {
-		testPrompt = defaultTextTestPrompt
-	}
+func createOpenAIChatCompletionsTestPayload(modelID string, prompt string, locale ...string) map[string]any {
+	testPrompt := normalizeTextTestPromptForLocale(prompt, firstAccountTestLocale(locale))
 
 	return map[string]any{
 		"model": modelID,
