@@ -14,7 +14,11 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 )
 
-const upstreamModelsBodyLimit int64 = 8 << 20
+const (
+	upstreamModelsBodyLimit int64 = 8 << 20
+
+	defaultOpenAIModelsUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
 
 // UpstreamModelSyncErrorKind classifies model sync failures for safe HTTP mapping.
 type UpstreamModelSyncErrorKind string
@@ -363,9 +367,51 @@ func (s *AccountTestService) buildOpenAIUpstreamModelsRequest(ctx context.Contex
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
+	applyOpenAIUpstreamModelsHeaders(req, account)
 	// 账号级请求头覆写：模型列表探测与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
 	return req, nil
+}
+
+func applyOpenAIUpstreamModelsHeaders(req *http.Request, account *Account) {
+	if req == nil || account == nil || !account.IsOpenAIModelsSyncHeadersEnabled() {
+		return
+	}
+
+	if account.GetOpenAIModelsSyncUserAgentMode() == OpenAIModelsSyncUserAgentModeCustom {
+		userAgent := strings.TrimSpace(account.GetOpenAIUserAgent())
+		if userAgent == "" {
+			userAgent = defaultOpenAIModelsUserAgent
+		}
+		req.Header.Set("User-Agent", userAgent)
+	} else {
+		req.Header.Set("User-Agent", defaultOpenAIModelsUserAgent)
+	}
+	for key, value := range account.GetStringMapCredential("models_sync_headers") {
+		setUpstreamModelsHeader(req.Header, key, value)
+	}
+	for key, value := range account.GetStringMapCredential("upstream_models_headers") {
+		setUpstreamModelsHeader(req.Header, key, value)
+	}
+}
+
+func setUpstreamModelsHeader(headers http.Header, key, value string) {
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if key == "" || value == "" || isHopByHopHeader(key) {
+		return
+	}
+	headers.Set(key, value)
+}
+
+func isHopByHopHeader(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+		"te", "trailer", "transfer-encoding", "upgrade", "host", "content-length":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *AccountTestService) buildGeminiUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {

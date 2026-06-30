@@ -209,6 +209,7 @@ func TestBuildUpstreamModelsRequestsForAPIKeyAccounts(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "https://openai.example.com/v1/models", openAIReq.URL.String())
 	require.Equal(t, "Bearer openai-key", openAIReq.Header.Get("Authorization"))
+	require.Empty(t, openAIReq.Header.Get("User-Agent"))
 
 	grokReq, err := svc.buildUpstreamModelsRequest(ctx, &Account{
 		Platform: PlatformGrok,
@@ -277,6 +278,94 @@ func TestBuildUpstreamModelsRequestGrokOAuthRequiresTokenProvider(t *testing.T) 
 	require.True(t, errors.As(err, &syncErr))
 	require.Equal(t, UpstreamModelSyncErrorConfiguration, syncErr.Kind)
 	require.Contains(t, syncErr.SafeMessage(), "token provider")
+}
+
+func TestBuildOpenAIUpstreamModelsRequestAppliesDefaultBrowserUAWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	svc := &AccountTestService{cfg: upstreamModelSyncTestConfig()}
+	req, err := svc.buildOpenAIUpstreamModelsRequest(context.Background(), &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":                     "openai-key",
+			"base_url":                    "https://openai.example.com",
+			"models_sync_headers_enabled": true,
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, defaultOpenAIModelsUserAgent, req.Header.Get("User-Agent"))
+}
+
+func TestBuildOpenAIUpstreamModelsRequestAppliesCustomHeadersWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	svc := &AccountTestService{cfg: upstreamModelSyncTestConfig()}
+	req, err := svc.buildOpenAIUpstreamModelsRequest(context.Background(), &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":                     "openai-key",
+			"base_url":                    "https://openai.example.com",
+			"models_sync_headers_enabled": true,
+			"models_sync_user_agent_mode": "custom",
+			"user_agent":                  "account-user-agent",
+			"models_sync_headers": map[string]any{
+				"User-Agent":      "headers-user-agent",
+				"Accept-Language": "en-US,en;q=0.9",
+				"Host":            "evil.example.com",
+			},
+			"upstream_models_headers": `{"X-Trace-Mode":"models-sync"}`,
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "headers-user-agent", req.Header.Get("User-Agent"))
+	require.Equal(t, "en-US,en;q=0.9", req.Header.Get("Accept-Language"))
+	require.Equal(t, "models-sync", req.Header.Get("X-Trace-Mode"))
+	require.Empty(t, req.Header.Get("Host"))
+}
+
+func TestBuildOpenAIUpstreamModelsRequestAppliesLegacyHeadersWithoutExplicitToggle(t *testing.T) {
+	t.Parallel()
+
+	svc := &AccountTestService{cfg: upstreamModelSyncTestConfig()}
+	req, err := svc.buildOpenAIUpstreamModelsRequest(context.Background(), &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":    "openai-key",
+			"base_url":   "https://openai.example.com",
+			"user_agent": "legacy-user-agent",
+			"models_sync_headers": map[string]any{
+				"Accept-Language": "zh-CN,zh;q=0.9",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "legacy-user-agent", req.Header.Get("User-Agent"))
+	require.Equal(t, "zh-CN,zh;q=0.9", req.Header.Get("Accept-Language"))
+}
+
+func TestBuildOpenAIUpstreamModelsRequestRespectsDisabledToggle(t *testing.T) {
+	t.Parallel()
+
+	svc := &AccountTestService{cfg: upstreamModelSyncTestConfig()}
+	req, err := svc.buildOpenAIUpstreamModelsRequest(context.Background(), &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":                     "openai-key",
+			"base_url":                    "https://openai.example.com",
+			"models_sync_headers_enabled": false,
+			"user_agent":                  "ignored-user-agent",
+			"models_sync_headers": map[string]any{
+				"Accept-Language": "zh-CN,zh;q=0.9",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Empty(t, req.Header.Get("User-Agent"))
+	require.Empty(t, req.Header.Get("Accept-Language"))
 }
 
 func TestBuildAntigravityAPIKeyModelsRequestRejectsOfficialCloudCodeBase(t *testing.T) {

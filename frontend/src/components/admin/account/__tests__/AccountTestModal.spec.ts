@@ -23,12 +23,15 @@ vi.mock('@/composables/useClipboard', () => ({
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
+  const { ref } = await vi.importActual<typeof import('vue')>('vue')
   const messages: Record<string, string> = {
+    'admin.accounts.textPromptDefault': 'What model are you?',
     'admin.accounts.imagePromptDefault': 'Generate a cute orange cat astronaut sticker on a clean pastel background.'
   }
   return {
     ...actual,
     useI18n: () => ({
+      locale: ref('en'),
       t: (key: string, params?: Record<string, string | number>) => {
         if (key === 'admin.accounts.imageReceived' && params?.count) {
           return `received-${params.count}`
@@ -116,6 +119,42 @@ describe('AccountTestModal', () => {
     vi.restoreAllMocks()
   })
 
+  it('文本模型测试默认使用当前语言提示词并允许自定义', async () => {
+    getAvailableModels.mockResolvedValueOnce([
+      { id: 'gpt-5.4', display_name: 'GPT-5.4' }
+    ])
+    const wrapper = mountModal({
+      id: 43,
+      name: 'OpenAI Text Test',
+      platform: 'openai',
+      type: 'apikey',
+      status: 'active'
+    })
+
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    const promptInput = wrapper.find('textarea.textarea-stub')
+    expect(promptInput.exists()).toBe(true)
+    expect((promptInput.element as HTMLTextAreaElement).value).toBe('What model are you?')
+    await promptInput.setValue('Tell me your model name')
+
+    const buttons = wrapper.findAll('button')
+    const startButton = buttons.find((button) => button.text().includes('admin.accounts.startTest'))
+    expect(startButton).toBeTruthy()
+
+    await startButton!.trigger('click')
+    await flushPromises()
+
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body)).toEqual({
+      model_id: 'gpt-5.4',
+      prompt: 'Tell me your model name',
+      mode: 'default'
+    })
+  })
+
   it('gemini 图片模型测试会携带提示词并渲染图片预览', async () => {
     const wrapper = mountModal()
     await wrapper.setProps({ show: true })
@@ -179,7 +218,7 @@ describe('AccountTestModal', () => {
     const [, request] = (global.fetch as any).mock.calls[0]
     expect(JSON.parse(request.body)).toEqual({
       model_id: 'grok-4.3',
-      prompt: ''
+      prompt: 'What model are you?'
     })
   })
 
@@ -212,7 +251,7 @@ describe('AccountTestModal', () => {
     const [, request] = (global.fetch as any).mock.calls[0]
     expect(JSON.parse(request.body)).toMatchObject({
       model_id: 'gpt-5.4',
-      prompt: '',
+      prompt: 'What model are you?',
       mode: 'compact'
     })
   })
