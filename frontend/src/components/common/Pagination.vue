@@ -122,7 +122,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import Select from './Select.vue'
-import { getConfiguredTablePageSizeOptions, normalizeTablePageSize } from '@/utils/tablePreferences'
+import { getConfiguredTablePageSizeOptions } from '@/utils/tablePreferences'
 import { setPersistedPageSize } from '@/composables/usePersistedPageSize'
 
 const { t } = useI18n()
@@ -164,10 +164,13 @@ const toItem = computed(() => {
 const pageSizeSelectOptions = computed(() => {
   const options = Array.from(
     new Set([
-      ...getConfiguredTablePageSizeOptions(),
-      normalizeTablePageSize(props.pageSize)
+      ...(props.pageSizeOptions.length > 0 ? props.pageSizeOptions : getConfiguredTablePageSizeOptions()),
+      props.pageSize
     ])
-  ).sort((a, b) => a - b)
+  )
+    .map((size) => Number(size))
+    .filter((size) => Number.isInteger(size) && size > 0)
+    .sort((a, b) => a - b)
 
   return options.map((size) => ({
     value: size,
@@ -224,7 +227,8 @@ const goToPage = (newPage: number) => {
 
 const handlePageSizeChange = (value: string | number | boolean | null) => {
   if (value === null || typeof value === 'boolean') return
-  const newPageSize = normalizeTablePageSize(typeof value === 'string' ? parseInt(value, 10) : value)
+  const newPageSize = typeof value === 'string' ? parseInt(value, 10) : value
+  if (!Number.isInteger(newPageSize) || newPageSize <= 0) return
   setPersistedPageSize(newPageSize)
   emit('update:pageSize', newPageSize)
 }
