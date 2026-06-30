@@ -66,12 +66,12 @@
         />
       </div>
 
-      <div v-if="supportsImageTest" class="space-y-1.5">
+      <div v-if="selectedModelId" class="space-y-1.5">
         <TextArea
           v-model="testPrompt"
-          :label="t('admin.accounts.imagePromptLabel')"
-          :placeholder="t('admin.accounts.imagePromptPlaceholder')"
-          :hint="t('admin.accounts.imageTestHint')"
+          :label="supportsImageTest ? t('admin.accounts.imagePromptLabel') : t('admin.accounts.textPromptLabel')"
+          :placeholder="supportsImageTest ? t('admin.accounts.imagePromptPlaceholder') : t('admin.accounts.textPromptPlaceholder')"
+          :hint="supportsImageTest ? t('admin.accounts.imageTestHint') : t('admin.accounts.textTestHint')"
           :disabled="status === 'connecting'"
           rows="3"
         />
@@ -189,7 +189,7 @@
           {{
             supportsImageTest
               ? t('admin.accounts.imageTestMode')
-              : t('admin.accounts.testPrompt')
+              : t('admin.accounts.textTestMode')
           }}
         </span>
       </div>
@@ -254,7 +254,7 @@ import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { adminAPI } from '@/api/admin'
 import type { Account, ClaudeModel } from '@/types'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const { copyToClipboard } = useClipboard()
 
 interface OutputLine {
@@ -309,6 +309,29 @@ const supportsOpenAIImageTest = computed(() => {
 })
 
 const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
+const textPromptDefault = computed(() => t('admin.accounts.textPromptDefault'))
+const imagePromptDefault = computed(() => t('admin.accounts.imagePromptDefault'))
+const defaultPromptForSelectedModel = computed(() =>
+  supportsImageTest.value ? imagePromptDefault.value : textPromptDefault.value
+)
+const defaultPromptCandidates = computed(() => new Set([
+  textPromptDefault.value,
+  imagePromptDefault.value,
+  'hi',
+  '你是什么模型？',
+  'What model are you?',
+  'Generate a cute orange cat astronaut sticker on a clean pastel background.'
+]))
+const isDefaultPromptValue = (value: string) => {
+  const normalized = value.trim()
+  return normalized === '' || defaultPromptCandidates.value.has(normalized)
+}
+const syncDefaultPrompt = () => {
+  if (isDefaultPromptValue(testPrompt.value)) {
+    testPrompt.value = defaultPromptForSelectedModel.value
+  }
+}
+const currentTestPrompt = computed(() => testPrompt.value.trim() || defaultPromptForSelectedModel.value)
 
 const sortTestModels = (models: ClaudeModel[]) => {
   const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
@@ -337,8 +360,12 @@ watch(
 )
 
 watch(selectedModelId, () => {
-  if (supportsImageTest.value && !testPrompt.value.trim()) {
-    testPrompt.value = t('admin.accounts.imagePromptDefault')
+  syncDefaultPrompt()
+})
+
+watch(locale, () => {
+  if (props.show) {
+    syncDefaultPrompt()
   }
 })
 
@@ -425,7 +452,7 @@ const startTest = async () => {
       mode?: 'default' | 'compact'
     } = {
       model_id: selectedModelId.value,
-      prompt: supportsImageTest.value ? testPrompt.value.trim() : ''
+      prompt: currentTestPrompt.value
     }
     if (isOpenAIAccount.value) {
       requestBody.mode = testMode.value
@@ -510,7 +537,7 @@ const handleEvent = (event: {
       addLine(
         supportsImageTest.value
             ? t('admin.accounts.sendingImageRequest')
-            : t('admin.accounts.sendingTestMessage'),
+            : t('admin.accounts.sendingTestMessage', { prompt: currentTestPrompt.value }),
         'text-gray-400'
       )
       addLine('', 'text-gray-300')

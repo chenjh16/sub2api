@@ -78,6 +78,97 @@
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
         </div>
 
+        <div
+          v-if="account.platform === 'openai'"
+          class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        >
+          <div class="flex items-center justify-between gap-4">
+            <div class="min-w-0">
+              <label class="input-label mb-0">{{ t('admin.accounts.openai.modelsSyncHeadersTitle') }}</label>
+              <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.openai.modelsSyncHeadersDesc') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="openai-models-sync-headers-toggle"
+              @click="modelsSyncHeadersEnabled = !modelsSyncHeadersEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                modelsSyncHeadersEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  modelsSyncHeadersEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+          <div
+            v-if="modelsSyncHeadersEnabled"
+            class="mt-4 space-y-4 rounded-lg border border-gray-200 bg-gray-50/70 p-3 dark:border-dark-600 dark:bg-dark-800/40"
+          >
+            <div class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
+              <p class="text-xs leading-5 text-blue-700 dark:text-blue-400">
+                <Icon name="exclamationCircle" size="sm" class="mr-1 inline" :stroke-width="2" />
+                {{ t('admin.accounts.openai.modelsSyncUserAgentDefaultHint') }}
+              </p>
+            </div>
+            <div>
+              <label class="input-label">{{ t('admin.accounts.openai.modelsSyncUserAgentMode') }}</label>
+              <div class="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  @click="modelsSyncUserAgentMode = 'default'"
+                  :class="[
+                    'rounded-lg border px-3 py-2 text-sm font-medium transition-colors',
+                    modelsSyncUserAgentMode === 'default'
+                      ? 'border-primary-500 bg-primary-50 text-primary-700 dark:border-primary-500 dark:bg-primary-900/20 dark:text-primary-300'
+                      : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300 dark:hover:bg-dark-600'
+                  ]"
+                >
+                  {{ t('admin.accounts.openai.modelsSyncUserAgentDefault') }}
+                </button>
+                <button
+                  type="button"
+                  @click="modelsSyncUserAgentMode = 'custom'"
+                  :class="[
+                    'rounded-lg border px-3 py-2 text-sm font-medium transition-colors',
+                    modelsSyncUserAgentMode === 'custom'
+                      ? 'border-primary-500 bg-primary-50 text-primary-700 dark:border-primary-500 dark:bg-primary-900/20 dark:text-primary-300'
+                      : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300 dark:hover:bg-dark-600'
+                  ]"
+                >
+                  {{ t('admin.accounts.openai.modelsSyncUserAgentCustom') }}
+                </button>
+              </div>
+            </div>
+            <div v-if="modelsSyncUserAgentMode === 'custom'">
+              <label class="input-label">{{ t('admin.accounts.openai.modelsSyncUserAgent') }}</label>
+              <input
+                v-model="modelsSyncUserAgent"
+                type="text"
+                class="input font-mono text-sm"
+                :placeholder="t('admin.accounts.openai.modelsSyncUserAgentPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.openai.modelsSyncUserAgentHint') }}</p>
+            </div>
+            <div>
+              <label class="input-label">{{ t('admin.accounts.openai.modelsSyncHeaders') }}</label>
+              <textarea
+                v-model="modelsSyncHeadersText"
+                rows="5"
+                class="input font-mono text-xs"
+                spellcheck="false"
+                :placeholder="modelsSyncHeadersPlaceholder"
+              ></textarea>
+              <p class="input-hint">{{ t('admin.accounts.openai.modelsSyncHeadersHint') }}</p>
+            </div>
+          </div>
+        </div>
+
         <!-- Model Restriction Section (不适用于 Antigravity) -->
         <div v-if="account.platform !== 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -2872,6 +2963,11 @@ const GROK_CLIENT_TOOL_CACHE_EXTRA_KEY = 'grok_client_tool_cache_enabled'
 const poolModeEnabled = ref(false)
 const poolModeRetryCount = ref(DEFAULT_POOL_MODE_RETRY_COUNT)
 const poolModeRetryStatusCodesInput = ref('')
+const modelsSyncHeadersEnabled = ref(false)
+const modelsSyncUserAgentMode = ref<'default' | 'custom'>('default')
+const modelsSyncUserAgent = ref('')
+const modelsSyncHeadersText = ref('')
+const modelsSyncHeadersPlaceholder = '{\n  "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"\n}'
 
 function parsePoolModeRetryStatusCodes(input: string): number[] {
   if (!input || !input.trim()) return []
@@ -2903,6 +2999,78 @@ function formatPoolModeRetryStatusCodes(value: unknown): string {
     out.push(n)
   }
   return out.sort((a, b) => a - b).join(', ')
+}
+
+function normalizeStringMapCredentialForEdit(value: unknown): Record<string, string> {
+  let raw = value
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (!trimmed) return {}
+    try {
+      raw = JSON.parse(trimmed)
+    } catch {
+      return {}
+    }
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {}
+  }
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const headerName = key.trim()
+    if (!headerName || value == null) continue
+    if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') continue
+    const headerValue = String(value).trim()
+    if (!headerValue) continue
+    out[headerName] = headerValue
+  }
+  return out
+}
+
+function formatStringMapCredentialForEdit(value: unknown): string {
+  const headers = normalizeStringMapCredentialForEdit(value)
+  return Object.keys(headers).length > 0 ? JSON.stringify(headers, null, 2) : ''
+}
+
+function parseCredentialBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number' && Number.isFinite(value)) return value !== 0
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true' || normalized === '1') return true
+    if (normalized === 'false' || normalized === '0') return false
+  }
+  return null
+}
+
+function parseModelsSyncHeadersForSave(input: string): Record<string, string> | null {
+  const text = input.trim()
+  if (!text) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error(t('admin.accounts.openai.modelsSyncHeadersInvalid'))
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(t('admin.accounts.openai.modelsSyncHeadersInvalid'))
+  }
+  const headers: Record<string, string> = {}
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (
+      value == null ||
+      typeof value !== 'string' &&
+      typeof value !== 'number' &&
+      typeof value !== 'boolean'
+    ) {
+      throw new Error(t('admin.accounts.openai.modelsSyncHeadersInvalid'))
+    }
+    const headerName = key.trim()
+    const headerValue = String(value).trim()
+    if (!headerName || !headerValue) continue
+    headers[headerName] = headerValue
+  }
+  return Object.keys(headers).length > 0 ? headers : null
 }
 const customErrorCodesEnabled = ref(false)
 const selectedErrorCodes = ref<number[]>([])
@@ -3614,6 +3782,31 @@ const syncFormFromAccount = (newAccount: Account | null) => {
             ? 'https://api.x.ai/v1'
             : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
+    if (newAccount.platform === 'openai') {
+      const existingModelsSyncHeaders =
+        credentials.models_sync_headers ?? credentials.upstream_models_headers
+      const hasModelsSyncUserAgent =
+        typeof credentials.user_agent === 'string' && credentials.user_agent.trim() !== ''
+      const hasModelsSyncHeaders =
+        Object.keys(normalizeStringMapCredentialForEdit(existingModelsSyncHeaders)).length > 0
+      const explicitModelsSyncHeadersEnabled = parseCredentialBoolean(credentials.models_sync_headers_enabled)
+      const modelsSyncUserAgentModeValue =
+        typeof credentials.models_sync_user_agent_mode === 'string'
+          ? credentials.models_sync_user_agent_mode.trim()
+          : ''
+      modelsSyncHeadersEnabled.value = explicitModelsSyncHeadersEnabled ?? (hasModelsSyncUserAgent || hasModelsSyncHeaders)
+      modelsSyncUserAgentMode.value =
+        modelsSyncUserAgentModeValue === 'custom' || (!modelsSyncUserAgentModeValue && hasModelsSyncUserAgent)
+          ? 'custom'
+          : 'default'
+      modelsSyncUserAgent.value = hasModelsSyncUserAgent ? (credentials.user_agent as string) : ''
+      modelsSyncHeadersText.value = formatStringMapCredentialForEdit(existingModelsSyncHeaders)
+    } else {
+      modelsSyncHeadersEnabled.value = false
+      modelsSyncUserAgentMode.value = 'default'
+      modelsSyncUserAgent.value = ''
+      modelsSyncHeadersText.value = ''
+    }
 
     // Load model mappings and detect mode
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
@@ -3700,6 +3893,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     poolModeRetryStatusCodesInput.value = ''
     customErrorCodesEnabled.value = false
     selectedErrorCodes.value = []
+    modelsSyncHeadersEnabled.value = false
+    modelsSyncUserAgentMode.value = 'default'
+    modelsSyncUserAgent.value = ''
+    modelsSyncHeadersText.value = ''
   }
   editApiKey.value = ''
 }
@@ -4253,6 +4450,28 @@ const handleSubmit = async () => {
       }
       if (props.account.platform === 'openai') {
         applyOpenAIEndpointCapabilities(newCredentials)
+        if (modelsSyncHeadersEnabled.value) {
+          newCredentials.models_sync_headers_enabled = true
+          newCredentials.models_sync_user_agent_mode = modelsSyncUserAgentMode.value
+          const modelsUserAgent = modelsSyncUserAgent.value.trim()
+          if (modelsSyncUserAgentMode.value === 'custom' && modelsUserAgent) {
+            newCredentials.user_agent = modelsUserAgent
+          } else {
+            delete newCredentials.user_agent
+          }
+          const modelsHeaders = parseModelsSyncHeadersForSave(modelsSyncHeadersText.value)
+          if (modelsHeaders) {
+            newCredentials.models_sync_headers = modelsHeaders
+          } else {
+            delete newCredentials.models_sync_headers
+          }
+        } else {
+          delete newCredentials.models_sync_headers_enabled
+          delete newCredentials.models_sync_user_agent_mode
+          delete newCredentials.user_agent
+          delete newCredentials.models_sync_headers
+        }
+        delete newCredentials.upstream_models_headers
         const compactModelMapping = buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
         if (compactModelMapping) {
           newCredentials.compact_model_mapping = compactModelMapping

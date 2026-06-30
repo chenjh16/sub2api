@@ -507,6 +507,23 @@ export default {
           'Applies to Responses / WebSocket v2 response-chain anchors. When enabled, this account can take priority even if previous_response_id is bound to another account; if the upstream does not recognize that response ID, previous_response_not_found recovery may be triggered.',
         breakStickyAdvancedHint:
           'Start with normal session sticky. Enable previous_response_id sticky only when you intentionally want continuation requests to migrate to higher-priority accounts.',
+        modelsSyncHeadersTitle: 'Model sync headers',
+        modelsSyncHeadersDesc:
+          'Disabled by default. When disabled, Sub2API keeps its original /v1/models sync request. Normal forwarding is unaffected.',
+        modelsSyncUserAgentMode: 'User-Agent mode',
+        modelsSyncUserAgentDefault: 'Default browser UA',
+        modelsSyncUserAgentCustom: 'Custom UA',
+        modelsSyncUserAgentDefaultHint:
+          'When enabled, Sub2API uses the built-in browser UA by default. Switch to a custom UA or add Headers JSON only when the upstream requires it.',
+        modelsSyncUserAgent: 'Model sync User-Agent',
+        modelsSyncUserAgentPlaceholder: 'Mozilla/5.0 ...',
+        modelsSyncUserAgentHint:
+          'Override the default browser UA here if an upstream edge policy requires a specific one.',
+        modelsSyncHeaders: 'Model sync Headers (JSON)',
+        modelsSyncHeadersHint:
+          'Enter a JSON object. Host, Content-Length, Connection, and other hop-by-hop headers are ignored by the backend; usually do not set Authorization.',
+        modelsSyncHeadersInvalid:
+          'Model sync Headers must be a JSON object whose values are strings, numbers, or booleans.',
         responsesWebsocketsV2: 'Responses WebSocket v2',
         responsesWebsocketsV2Desc:
           'Disabled by default. Enable to allow responses_websockets_v2 capability (still gated by global and account-type switches).',
@@ -1279,7 +1296,7 @@ export default {
       testFailed: 'Test failed',
       connectedToApi: 'Connected to API',
       usingModel: 'Using model: {model}',
-      sendingTestMessage: 'Sending test message: "hi"',
+      sendingTestMessage: 'Sending test message: "{prompt}"',
       sendingImageRequest: 'Sending image generation test request...',
       response: 'Response:',
       startTest: 'Start Test',
@@ -1291,7 +1308,12 @@ export default {
       testAccountTypeLabel: 'Account type: {type}',
       selectTestModel: 'Select Test Model',
       testModel: 'Test model',
-      testPrompt: 'Prompt: "hi"',
+      testPrompt: 'Mode: Text test',
+      textTestMode: 'Mode: Text test',
+      textPromptLabel: 'Test prompt',
+      textPromptPlaceholder: 'Example: What model are you?',
+      textPromptDefault: 'What model are you?',
+      textTestHint: 'This prompt is sent with the selected text model to verify the account connection.',
       imagePromptLabel: 'Image prompt',
       imagePromptPlaceholder: 'Example: Generate an orange cat astronaut sticker in pixel-art style on a solid background.',
       imagePromptDefault: 'Generate a cute orange cat astronaut sticker on a clean pastel background.',

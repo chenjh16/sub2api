@@ -113,6 +113,10 @@ const (
 	OpenAIAuthModePersonalAccessToken       = "personalAccessToken"
 	openAIAuthModeCredentialKey             = "auth_mode"
 	openAIAuthModeLegacyCredentialKey       = "openai_auth_mode"
+	openAIModelsSyncHeadersEnabledKey       = "models_sync_headers_enabled"
+	openAIModelsSyncUserAgentModeKey        = "models_sync_user_agent_mode"
+	OpenAIModelsSyncUserAgentModeDefault    = "default"
+	OpenAIModelsSyncUserAgentModeCustom     = "custom"
 	accountExtraBreakStickySession          = "break_sticky_session"
 	accountExtraBreakStickySessionHash      = "break_sticky_session_hash"
 	accountExtraBreakStickyPreviousResponse = "break_sticky_previous_response"
@@ -320,6 +324,73 @@ func (a *Account) GetCredential(key string) string {
 	default:
 		return ""
 	}
+}
+
+func (a *Account) GetStringMapCredential(key string) map[string]string {
+	if a == nil || a.Credentials == nil {
+		return nil
+	}
+	v, ok := a.Credentials[key]
+	if !ok || v == nil {
+		return nil
+	}
+
+	switch val := v.(type) {
+	case map[string]string:
+		return cloneStringMap(val)
+	case map[string]any:
+		return stringMapFromAny(val)
+	case string:
+		val = strings.TrimSpace(val)
+		if val == "" {
+			return nil
+		}
+		var parsed map[string]string
+		if err := json.Unmarshal([]byte(val), &parsed); err == nil {
+			return cloneStringMap(parsed)
+		}
+		var parsedAny map[string]any
+		if err := json.Unmarshal([]byte(val), &parsedAny); err == nil {
+			return stringMapFromAny(parsedAny)
+		}
+	}
+	return nil
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func stringMapFromAny(values map[string]any) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		switch v := value.(type) {
+		case string:
+			out[key] = v
+		case json.Number:
+			out[key] = v.String()
+		case float64:
+			out[key] = strconv.FormatFloat(v, 'f', -1, 64)
+		case int64:
+			out[key] = strconv.FormatInt(v, 10)
+		case int:
+			out[key] = strconv.Itoa(v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // GetCredentialAsTime 解析凭证中的时间戳字段，支持多种格式
@@ -1388,6 +1459,59 @@ func (a *Account) GetOpenAIUserAgent() string {
 		return ""
 	}
 	return a.GetCredential("user_agent")
+}
+
+func (a *Account) IsOpenAIModelsSyncHeadersEnabled() bool {
+	if a == nil || !a.IsOpenAI() || a.Credentials == nil {
+		return false
+	}
+	if value, ok := a.Credentials[openAIModelsSyncHeadersEnabledKey]; ok {
+		return credentialBool(value)
+	}
+	return strings.TrimSpace(a.GetOpenAIUserAgent()) != "" ||
+		len(a.GetStringMapCredential("models_sync_headers")) > 0 ||
+		len(a.GetStringMapCredential("upstream_models_headers")) > 0
+}
+
+func (a *Account) GetOpenAIModelsSyncUserAgentMode() string {
+	if a == nil || !a.IsOpenAI() {
+		return OpenAIModelsSyncUserAgentModeDefault
+	}
+	mode := strings.ToLower(strings.TrimSpace(a.GetCredential(openAIModelsSyncUserAgentModeKey)))
+	switch mode {
+	case OpenAIModelsSyncUserAgentModeDefault, OpenAIModelsSyncUserAgentModeCustom:
+		return mode
+	default:
+		if strings.TrimSpace(a.GetOpenAIUserAgent()) != "" {
+			return OpenAIModelsSyncUserAgentModeCustom
+		}
+		return OpenAIModelsSyncUserAgentModeDefault
+	}
+}
+
+func credentialBool(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		parsed, err := strconv.ParseBool(strings.TrimSpace(v))
+		return err == nil && parsed
+	case json.Number:
+		parsed, err := strconv.ParseBool(strings.TrimSpace(v.String()))
+		if err == nil {
+			return parsed
+		}
+		n, err := strconv.ParseFloat(v.String(), 64)
+		return err == nil && n != 0
+	case float64:
+		return v != 0
+	case int:
+		return v != 0
+	case int64:
+		return v != 0
+	default:
+		return false
+	}
 }
 
 func (a *Account) GetChatGPTAccountID() string {

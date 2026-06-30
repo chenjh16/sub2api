@@ -384,7 +384,7 @@ func TestSettingService_UpdateSettings_TablePreferences(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "1000", repo.updates[SettingKeyTableDefaultPageSize])
-	require.Equal(t, "[20,100]", repo.updates[SettingKeyTablePageSizeOptions])
+	require.Equal(t, "[20,100,1000]", repo.updates[SettingKeyTablePageSizeOptions])
 }
 
 func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler(t *testing.T) {

@@ -1221,7 +1221,15 @@ func normalizeTablePreferences(defaultPageSize int, options []int) (int, []int) 
 	}
 
 	if len(normalizedOptions) == 0 {
-		normalizedOptions = []int{10, 20, 50}
+		normalizedOptions = []int{10, 20, 50, 100}
+		for _, option := range normalizedOptions {
+			seen[option] = struct{}{}
+		}
+	}
+
+	if _, ok := seen[defaultPageSize]; !ok {
+		normalizedOptions = append(normalizedOptions, defaultPageSize)
+		sort.Ints(normalizedOptions)
 	}
 
 	return defaultPageSize, normalizedOptions
