@@ -23,10 +23,16 @@ vi.mock('@/composables/useClipboard', () => ({
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
+  const { ref } = await vi.importActual<typeof import('vue')>('vue')
+  const messages: Record<string, string> = {
+    'admin.accounts.textPromptDefault': 'What model are you?',
+    'admin.accounts.imagePromptDefault': 'Generate a cute orange cat astronaut sticker on a clean pastel background.'
+  }
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => key
+      locale: ref('en'),
+      t: (key: string) => messages[key] || key
     })
   }
 })
@@ -121,7 +127,7 @@ describe('AccountTestModal', () => {
   it('posts compact mode for OpenAI compact probe', async () => {
     const wrapper = mount(AccountTestModal, {
       props: {
-        show: true,
+        show: false,
         account: buildAccount()
       },
       global: {
@@ -145,6 +151,44 @@ describe('AccountTestModal', () => {
     expect(JSON.parse(options.body)).toMatchObject({
       model_id: 'gpt-5.4',
       mode: 'compact'
+    })
+  })
+
+  it('posts the editable text prompt for default text model tests', async () => {
+    const wrapper = mount(AccountTestModal, {
+      props: {
+        show: true,
+        account: buildAccount()
+      },
+      global: {
+        stubs: {
+          BaseDialog: BaseDialogStub,
+          Select: SelectStub,
+          TextArea: TextAreaStub,
+          Icon: true
+        }
+      }
+    })
+
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    ;(wrapper.vm as any).selectedModelId = 'gpt-5.4'
+    await flushPromises()
+    const promptInput = wrapper.find('textarea')
+    expect(promptInput.exists()).toBe(true)
+    expect((promptInput.element as HTMLTextAreaElement).value).toBe('What model are you?')
+    await promptInput.setValue('Tell me your model name')
+
+    ;(wrapper.vm as any).selectedModelId = 'gpt-5.4'
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    const [, options] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(options.body)).toMatchObject({
+      model_id: 'gpt-5.4',
+      prompt: 'Tell me your model name',
+      mode: 'default'
     })
   })
 
