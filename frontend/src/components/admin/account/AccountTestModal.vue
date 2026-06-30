@@ -377,7 +377,7 @@ import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { adminAPI } from '@/api/admin'
 import type { Account, ClaudeModel } from '@/types'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const { copyToClipboard } = useClipboard()
 
 interface OutputLine {
@@ -498,9 +498,10 @@ const modelOptionsForMode = computed(() => {
 
 const supportsPromptInput = computed(() => {
   if (!isGrokAccount.value) {
-    return supportsImageTest.value
+    return Boolean(selectedModelId.value)
   }
   return (
+    grokTestMode.value === 'text' ||
     grokTestMode.value === 'image' ||
     grokTestMode.value === 'video' ||
     grokTestMode.value === 'search' ||
@@ -609,7 +610,7 @@ const promptInputLabel = computed(() => {
   if (grokTestMode.value === 'tts') {
     return t('admin.accounts.grok.ttsTextLabel')
   }
-  return t('admin.accounts.imagePromptLabel')
+  return t('admin.accounts.textPromptLabel')
 })
 
 const promptInputPlaceholder = computed(() => {
@@ -625,7 +626,7 @@ const promptInputPlaceholder = computed(() => {
   if (grokTestMode.value === 'tts') {
     return t('admin.accounts.grok.ttsTextPlaceholder')
   }
-  return ''
+  return t('admin.accounts.textPromptPlaceholder')
 })
 
 const promptInputHint = computed(() => {
@@ -647,7 +648,7 @@ const promptInputHint = computed(() => {
   if (grokTestMode.value === 'realtime') {
     return t('admin.accounts.grok.realtimeTestHint')
   }
-  return ''
+  return t('admin.accounts.textTestHint')
 })
 
 const testModeSummary = computed(() => {
@@ -670,7 +671,7 @@ const testModeSummary = computed(() => {
     }
   }
   if (supportsImageTest.value) return t('admin.accounts.imageTestMode')
-  return t('admin.accounts.testPrompt')
+  return t('admin.accounts.textTestMode')
 })
 
 const canStartTest = computed(() => {
@@ -689,6 +690,53 @@ const canStartTest = computed(() => {
   return Boolean(selectedModelId.value)
 })
 
+const textPromptDefault = computed(() => t('admin.accounts.textPromptDefault'))
+const imagePromptDefault = computed(() => t('admin.accounts.imagePromptDefault'))
+const defaultPromptForCurrentMode = computed(() => {
+  if (!supportsPromptInput.value) return ''
+  if (isGrokAccount.value) {
+    switch (grokTestMode.value) {
+      case 'video':
+        return t('admin.accounts.videoPromptDefault')
+      case 'image':
+        return imagePromptDefault.value
+      case 'search':
+        return t('admin.accounts.grok.searchQueryDefault')
+      case 'tts':
+        return t('admin.accounts.grok.ttsTextDefault')
+      default:
+        return textPromptDefault.value
+    }
+  }
+  return supportsImageTest.value ? imagePromptDefault.value : textPromptDefault.value
+})
+const defaultPromptCandidates = computed(
+  () =>
+    new Set([
+      textPromptDefault.value,
+      imagePromptDefault.value,
+      t('admin.accounts.videoPromptDefault'),
+      t('admin.accounts.grok.searchQueryDefault'),
+      t('admin.accounts.grok.ttsTextDefault'),
+      'hi',
+      '你是什么模型？',
+      'What model are you?',
+      'Generate a cute orange cat astronaut sticker on a clean pastel background.'
+    ])
+)
+const isDefaultPromptValue = (value: string) => {
+  const normalized = value.trim()
+  return normalized === '' || defaultPromptCandidates.value.has(normalized)
+}
+const syncDefaultPrompt = () => {
+  if (supportsPromptInput.value && isDefaultPromptValue(testPrompt.value)) {
+    testPrompt.value = defaultPromptForCurrentMode.value
+  }
+}
+const currentTestPrompt = computed(
+  () => testPrompt.value.trim() || defaultPromptForCurrentMode.value
+)
+
 const sortTestModels = (models: ClaudeModel[]) => {
   const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
 
@@ -702,17 +750,7 @@ const sortTestModels = (models: ClaudeModel[]) => {
 
 // Load available models when modal opens
 const applyDefaultPromptForMode = () => {
-  if (!supportsPromptInput.value) return
-  if (testPrompt.value.trim()) return
-  if (grokTestMode.value === 'video') {
-    testPrompt.value = t('admin.accounts.videoPromptDefault')
-  } else if (grokTestMode.value === 'image' || supportsImageTest.value) {
-    testPrompt.value = t('admin.accounts.imagePromptDefault')
-  } else if (grokTestMode.value === 'search') {
-    testPrompt.value = t('admin.accounts.grok.searchQueryDefault')
-  } else if (grokTestMode.value === 'tts') {
-    testPrompt.value = t('admin.accounts.grok.ttsTextDefault')
-  }
+  syncDefaultPrompt()
 }
 
 const pickDefaultModelForMode = () => {
@@ -744,8 +782,8 @@ watch(
       await loadAvailableModels()
       if (isGrokAccount.value) {
         pickDefaultModelForMode()
-        applyDefaultPromptForMode()
       }
+      applyDefaultPromptForMode()
     } else {
       abortStream()
     }
@@ -758,6 +796,16 @@ watch(grokTestMode, () => {
   clearMediaUploads()
   pickDefaultModelForMode()
   applyDefaultPromptForMode()
+})
+
+watch(selectedModelId, () => {
+  syncDefaultPrompt()
+})
+
+watch(locale, () => {
+  if (props.show) {
+    syncDefaultPrompt()
+  }
 })
 
 const loadAvailableModels = async () => {
@@ -852,7 +900,7 @@ const startTest = async () => {
       audio_data_url?: string
     } = {
       model_id: showModelSelect.value ? selectedModelId.value : '',
-      prompt: supportsPromptInput.value ? testPrompt.value.trim() : ''
+      prompt: supportsPromptInput.value ? currentTestPrompt.value : ''
     }
     if (isOpenAIAccount.value) {
       requestBody.mode = testMode.value
@@ -969,10 +1017,12 @@ const handleEvent = (event: {
                     ? t('admin.accounts.grok.sendingSTTRequest')
                     : grokTestMode.value === 'realtime'
                       ? t('admin.accounts.grok.sendingRealtimeRequest')
-                      : t('admin.accounts.sendingTestMessage')
+                      : t('admin.accounts.sendingTestMessage', {
+                          prompt: currentTestPrompt.value
+                        })
           : supportsImageTest.value
             ? t('admin.accounts.sendingImageRequest')
-            : t('admin.accounts.sendingTestMessage'),
+            : t('admin.accounts.sendingTestMessage', { prompt: currentTestPrompt.value }),
         'text-gray-400'
       )
       addLine('', 'text-gray-300')
