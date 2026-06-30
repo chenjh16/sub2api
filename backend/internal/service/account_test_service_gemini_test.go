@@ -68,6 +68,53 @@ func TestCreateTextTestPayloadsUsePrompt(t *testing.T) {
 	require.Equal(t, "你是什么模型？", geminiParsed.Contents[0].Parts[0].Text)
 }
 
+func TestCreateTextTestPayloadsUseLocalizedDefaultPrompt(t *testing.T) {
+	t.Parallel()
+
+	claudePayload, err := createTestPayload("claude-sonnet-4-5", "", "zh-CN")
+	require.NoError(t, err)
+	claudeMessages := claudePayload["messages"].([]map[string]any)
+	claudeContent := claudeMessages[0]["content"].([]map[string]any)
+	require.Equal(t, defaultTextTestPromptZH, claudeContent[0]["text"])
+
+	openAIPayload := createOpenAITestPayload("gpt-5.4", false, "", "zh")
+	openAIInput := openAIPayload["input"].([]map[string]any)
+	openAIContent := openAIInput[0]["content"].([]map[string]any)
+	require.Equal(t, defaultTextTestPromptZH, openAIContent[0]["text"])
+
+	chatPayload := createOpenAIChatCompletionsTestPayload("gpt-5.4", "", "zh-Hans")
+	chatMessages := chatPayload["messages"].([]map[string]any)
+	require.Equal(t, defaultTextTestPromptZH, chatMessages[0]["content"])
+
+	geminiPayload := createGeminiTestPayload("gemini-2.5-pro", "", "zh")
+	var geminiParsed struct {
+		Contents []struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"contents"`
+	}
+	require.NoError(t, json.Unmarshal(geminiPayload, &geminiParsed))
+	require.Equal(t, defaultTextTestPromptZH, geminiParsed.Contents[0].Parts[0].Text)
+}
+
+func TestCreateImageTestPayloadIgnoresLocalizedTextDefault(t *testing.T) {
+	t.Parallel()
+
+	payload := createGeminiTestPayload("gemini-2.5-flash-image", "", "zh")
+
+	var parsed struct {
+		Contents []struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"contents"`
+	}
+
+	require.NoError(t, json.Unmarshal(payload, &parsed))
+	require.Equal(t, defaultGeminiImageTestPrompt, parsed.Contents[0].Parts[0].Text)
+}
+
 func TestProcessGeminiStream_EmitsImageEvent(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)

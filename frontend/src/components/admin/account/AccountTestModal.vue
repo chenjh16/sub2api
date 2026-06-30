@@ -895,12 +895,14 @@ const startTest = async () => {
     const requestBody: {
       model_id: string
       prompt: string
+      locale: string
       mode?: string
       image_data_url?: string
       audio_data_url?: string
     } = {
       model_id: showModelSelect.value ? selectedModelId.value : '',
-      prompt: supportsPromptInput.value ? currentTestPrompt.value : ''
+      prompt: currentTestPrompt.value,
+      locale: locale.value
     }
     if (isOpenAIAccount.value) {
       requestBody.mode = testMode.value
