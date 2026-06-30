@@ -1065,6 +1065,7 @@ type TestAccountRequest struct {
 	ModelID string `json:"model_id"`
 	Prompt  string `json:"prompt"`
 	Mode    string `json:"mode"`
+	Locale  string `json:"locale"`
 }
 
 type SyncFromCRSRequest struct {
@@ -1095,7 +1096,7 @@ func (h *AccountHandler) Test(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 
 	// Use AccountTestService to test the account with SSE streaming
-	if err := h.accountTestService.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode); err != nil {
+	if err := h.accountTestService.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode, req.Locale); err != nil {
 		// Error already sent via SSE, just log
 		return
 	}
