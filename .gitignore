@@ -147,12 +147,6 @@ docs/*
 !docs/screenshots/
 docs/screenshots/*
 !docs/screenshots/mobile-account-actions-menu.png
-!docs/openai-default-service-tier.md
-!docs/openai-upstream-error-failover.md
-!docs/spec-branch-changes.md
-!docs/spec-rebase-guide.md
-!docs/sub2api-local-installation.md
-!docs/sub2api-mainline-functional-changes.md
 .serena/
 .codex/
 frontend/coverage/
