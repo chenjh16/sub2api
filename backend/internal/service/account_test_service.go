@@ -41,6 +41,7 @@ import (
 // sseDataPrefix matches SSE data lines with optional whitespace after colon.
 // Some upstream APIs return non-standard "data:" without space (should be "data: ").
 var sseDataPrefix = regexp.MustCompile(`^data:\s*`)
+var openAIImageModelPattern = regexp.MustCompile(`(^|[-_/])(imagegen|imggen|stable-diffusion|sdxl)([-_/]|$)`)
 
 const (
 	testClaudeAPIURL   = "https://api.anthropic.com/v1/messages?beta=true"
@@ -137,9 +138,28 @@ func firstAccountTestLocale(locale []string) string {
 	return locale[0]
 }
 
-// isOpenAIImageModel checks if the model is an OpenAI image generation model (e.g. gpt-image-2).
+// isOpenAIImageModel checks if the model should use an OpenAI-compatible image generation probe.
 func isOpenAIImageModel(model string) bool {
-	return strings.HasPrefix(strings.ToLower(model), "gpt-image-")
+	normalized := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(model)), "models/")
+	if normalized == "" {
+		return false
+	}
+	for _, prefix := range []string{
+		"gpt-image-",
+		"dall-e-",
+		"imagen-",
+		"flux-",
+		"midjourney-",
+		"mj-",
+		"seedream-",
+		"jimeng-",
+		"kolors-",
+	} {
+		if strings.HasPrefix(normalized, prefix) {
+			return true
+		}
+	}
+	return openAIImageModelPattern.MatchString(normalized)
 }
 
 func isGrokVideoGenerationModel(model string) bool {
