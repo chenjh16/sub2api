@@ -1139,21 +1139,31 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
-          <input
-            v-model="apiKeyValue"
-            type="password"
-            required
-            class="input font-mono"
-            :placeholder="
-              form.platform === 'openai'
-                ? 'sk-proj-...'
-                : form.platform === 'gemini'
-                  ? 'AIza...'
-                  : form.platform === 'grok'
-                    ? 'xai-...'
-                    : 'sk-ant-...'
-            "
-          />
+          <div class="relative">
+            <input
+              v-model="apiKeyValue"
+              :type="showApiKeyValue ? 'text' : 'password'"
+              required
+              class="input pr-10 font-mono"
+              :placeholder="
+                 form.platform === 'openai'
+                   ? 'sk-proj-...'
+                   : form.platform === 'gemini'
+                     ? 'AIza...'
+                     : form.platform === 'grok'
+                       ? 'xai-...'
+                       : 'sk-ant-...'
+               "
+            />
+            <button
+              type="button"
+              class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-dark-600 dark:hover:text-gray-200"
+              :title="showApiKeyValue ? t('admin.accounts.hideApiKey') : t('admin.accounts.showApiKey')"
+              @click="showApiKeyValue = !showApiKeyValue"
+            >
+              <Icon :name="showApiKeyValue ? 'eyeOff' : 'eye'" size="sm" :stroke-width="2" />
+            </button>
+          </div>
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
         </div>
 
@@ -1254,7 +1264,14 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" :sync-credentials="syncPreviewCredentials" />
+              <ModelWhitelistSelector
+                v-model="allowedModels"
+                v-model:modelMappings="modelMappings"
+                :platform="form.platform"
+                :sync-credentials="syncPreviewCredentials"
+                :enable-mapping-tools="true"
+                :enable-model-testing="false"
+              />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0">{{
@@ -1736,7 +1753,14 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" platform="anthropic" :sync-credentials="syncPreviewCredentials" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              v-model:modelMappings="modelMappings"
+              platform="anthropic"
+              :sync-credentials="syncPreviewCredentials"
+              :enable-mapping-tools="true"
+              :enable-model-testing="false"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
@@ -2072,7 +2096,14 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" :sync-credentials="syncPreviewCredentials" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              v-model:modelMappings="modelMappings"
+              :platform="form.platform"
+              :sync-credentials="syncPreviewCredentials"
+              :enable-mapping-tools="true"
+              :enable-model-testing="false"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0">{{
@@ -3732,6 +3763,7 @@ const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
 const upstreamBillingAutoProbeEnabled = ref(true)
+const showApiKeyValue = ref(false)
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -4671,6 +4703,7 @@ const resetForm = () => {
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
   upstreamBillingAutoProbeEnabled.value = true
+  showApiKeyValue.value = false
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4761,6 +4794,7 @@ const resetForm = () => {
 }
 
 const handleClose = () => {
+  showApiKeyValue.value = false
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
