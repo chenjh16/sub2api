@@ -1474,13 +1474,23 @@
         />
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
-          <input
-            v-model="apiKeyValue"
-            type="password"
-            required
-            class="input font-mono"
-            :placeholder="apiKeyValuePlaceholder"
-          />
+          <div class="relative">
+            <input
+              v-model="apiKeyValue"
+              :type="showApiKeyValue ? 'text' : 'password'"
+              required
+              class="input pr-10 font-mono"
+              :placeholder="apiKeyValuePlaceholder"
+            />
+            <button
+              type="button"
+              class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-dark-600 dark:hover:text-gray-200"
+              :title="showApiKeyValue ? t('admin.accounts.hideApiKey') : t('admin.accounts.showApiKey')"
+              @click="showApiKeyValue = !showApiKeyValue"
+            >
+              <Icon :name="showApiKeyValue ? 'eyeOff' : 'eye'" size="sm" :stroke-width="2" />
+            </button>
+          </div>
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
         </div>
 
@@ -1583,9 +1593,11 @@
             <div v-if="modelRestrictionMode === 'whitelist'">
               <ModelWhitelistSelector
                 v-model="allowedModels"
-                :model-mappings="modelMappings"
+                v-model:modelMappings="modelMappings"
                 :platform="form.platform"
                 :sync-credentials="syncPreviewCredentials"
+                :enable-mapping-tools="true"
+                :enable-model-testing="false"
                 @upstream-synced="upstreamModelsPreviewed = true"
               />
               <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -2071,9 +2083,11 @@
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
               v-model="allowedModels"
-              :model-mappings="modelMappings"
+              v-model:modelMappings="modelMappings"
               platform="anthropic"
               :sync-credentials="syncPreviewCredentials"
+              :enable-mapping-tools="true"
+              :enable-model-testing="false"
               @upstream-synced="upstreamModelsPreviewed = true"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -2413,9 +2427,11 @@
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
               v-model="allowedModels"
-              :model-mappings="modelMappings"
+              v-model:modelMappings="modelMappings"
               :platform="form.platform"
               :sync-credentials="syncPreviewCredentials"
+              :enable-mapping-tools="true"
+              :enable-model-testing="false"
               @upstream-synced="upstreamModelsPreviewed = true"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -4233,6 +4249,7 @@ const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
 const upstreamBillingAutoProbeEnabled = ref(true)
+const showApiKeyValue = ref(false)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）账号类型、API 协议与端点 ──
 // 多协议供应商（国产厂商与走通用表单的供应商）的接入模式；OpenCode 用 openCodeAccountMode。
@@ -5436,6 +5453,7 @@ const resetForm = () => {
   apiKeyValue.value = ''
   upstreamRequestIdHeader.value = ''
   upstreamBillingAutoProbeEnabled.value = true
+  showApiKeyValue.value = false
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -5529,6 +5547,7 @@ const resetForm = () => {
 }
 
 const handleClose = () => {
+  showApiKeyValue.value = false
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
