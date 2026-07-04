@@ -71,6 +71,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyPurchaseSubscriptionURL:                   "",
 		SettingKeyTableDefaultPageSize:                      "20",
 		SettingKeyTablePageSizeOptions:                      "[10,20,50,100]",
+		SettingKeyModelMappingAutoRules:                     modelMappingAutoRulesDefaultJSON,
+		SettingKeyModelBatchTestConcurrency:                 strconv.Itoa(modelBatchTestDefaultConcurrency),
 		SettingKeyCustomMenuItems:                           "[]",
 		SettingKeyCustomEndpoints:                           "[]",
 		SettingKeyWeChatConnectEnabled:                      "false",

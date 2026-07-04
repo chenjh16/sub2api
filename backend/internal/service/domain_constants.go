@@ -272,6 +272,8 @@ const (
 	SettingKeyPurchaseSubscriptionURL     = "purchase_subscription_url"     // "购买订阅"页面 URL（作为 iframe src）
 	SettingKeyTableDefaultPageSize        = "table_default_page_size"       // 表格默认每页条数
 	SettingKeyTablePageSizeOptions        = "table_page_size_options"       // 表格可选每页条数（JSON 数组）
+	SettingKeyModelMappingAutoRules       = "model_mapping_auto_rules"      // 模型自动映射白名单规则（JSON 数组）
+	SettingKeyModelBatchTestConcurrency   = "model_batch_test_concurrency"  // 账号模型批量测试默认并发度
 	SettingKeyCustomMenuItems             = "custom_menu_items"             // 自定义菜单项（JSON 数组）
 	SettingKeyCustomEndpoints             = "custom_endpoints"              // 自定义端点列表（JSON 数组）
 

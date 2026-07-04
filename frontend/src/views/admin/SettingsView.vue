@@ -6041,6 +6041,115 @@
                 </div>
               </div>
 
+              <!-- Model Mapping Automation -->
+              <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 class="text-sm font-medium text-gray-900 dark:text-white">
+                      {{ t("admin.settings.site.modelMappingAutomationTitle") }}
+                    </h3>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.site.modelMappingAutomationDescription") }}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="modelMappingAutomationSaving"
+                    @click="saveModelMappingAutomationSettings"
+                  >
+                    {{
+                      modelMappingAutomationSaving
+                        ? t("common.saving")
+                        : t("admin.settings.site.saveModelMappingAutomation")
+                    }}
+                  </button>
+                </div>
+                <div v-if="modelMappingAutomationLoading" class="mt-4 text-sm text-gray-500 dark:text-gray-400">
+                  {{ t("common.loading") }}
+                </div>
+                <div v-else class="mt-4 space-y-4">
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.site.modelBatchTestConcurrency") }}
+                    </label>
+                    <input
+                      v-model.number="modelMappingAutomationForm.batch_test_concurrency"
+                      type="number"
+                      min="1"
+                      max="10"
+                      step="1"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.site.modelBatchTestConcurrencyHint") }}
+                    </p>
+                  </div>
+                  <div>
+                    <div class="mb-2 flex items-center justify-between gap-3">
+                      <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t("admin.settings.site.modelMappingAutoRules") }}
+                        </label>
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          {{ t("admin.settings.site.modelMappingAutoRulesHint") }}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        @click="addModelMappingAutomationRule"
+                      >
+                        <Icon name="plus" size="sm" class="mr-1" />
+                        {{ t("admin.settings.site.addModelMappingRule") }}
+                      </button>
+                    </div>
+                    <div class="space-y-2">
+                      <div
+                        v-for="(rule, index) in modelMappingAutomationForm.rules"
+                        :key="`${rule.from}-${rule.to}-${index}`"
+                        class="grid grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)_minmax(120px,0.45fr)_auto] items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-dark-600 dark:bg-dark-800/40"
+                      >
+                        <Toggle v-model="rule.enabled" />
+                        <input
+                          v-model="rule.from"
+                          type="text"
+                          class="input text-sm"
+                          :placeholder="t('admin.settings.site.modelMappingFromPlaceholder')"
+                        />
+                        <Icon name="arrowRight" size="sm" class="text-gray-400" />
+                        <input
+                          v-model="rule.to"
+                          type="text"
+                          class="input text-sm"
+                          :placeholder="t('admin.settings.site.modelMappingToPlaceholder')"
+                        />
+                        <input
+                          v-model="rule.source"
+                          type="text"
+                          class="input text-sm"
+                          :placeholder="t('admin.settings.site.modelMappingRuleSourcePlaceholder')"
+                        />
+                        <button
+                          type="button"
+                          class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-900/20"
+                          :title="t('common.delete')"
+                          @click="removeModelMappingAutomationRule(index)"
+                        >
+                          <Icon name="trash" size="sm" />
+                        </button>
+                      </div>
+                      <div
+                        v-if="modelMappingAutomationForm.rules.length === 0"
+                        class="rounded-lg border border-dashed border-gray-200 px-3 py-4 text-center text-sm text-gray-500 dark:border-dark-600 dark:text-gray-400"
+                      >
+                        {{ t("admin.settings.site.modelMappingAutoRulesEmpty") }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- Custom Endpoints -->
               <div>
                 <label
@@ -8293,9 +8402,11 @@ import type {
   OpenAIFastPolicyRule,
   WeChatConnectMode,
   WebSearchEmulationConfig,
-  WebSearchProviderConfig,
-  WebSearchTestResult,
-} from "@/api/admin/settings";
+	  WebSearchProviderConfig,
+	  WebSearchTestResult,
+	  ModelMappingAutoRule,
+	  ModelMappingAutomationSettings,
+	} from "@/api/admin/settings";
 import type {
   AdminGroup,
   LoginAgreementDocument,
@@ -8457,6 +8568,12 @@ const registrationEmailSuffixWhitelistTags = ref<string[]>([]);
 const registrationEmailSuffixWhitelistDraft = ref("");
 const forwardedClientIpHeaderDraft = ref("");
 const tablePageSizeOptionsInput = ref("10, 20, 50, 100");
+const modelMappingAutomationLoading = ref(true);
+const modelMappingAutomationSaving = ref(false);
+const modelMappingAutomationForm = reactive<ModelMappingAutomationSettings>({
+  rules: [],
+  batch_test_concurrency: 3,
+});
 
 // Admin API Key 状态
 const adminApiKeyLoading = ref(true);
@@ -10352,6 +10469,34 @@ function parseTablePageSizeOptionsInput(raw: string): number[] | null {
   return deduped;
 }
 
+function createModelMappingAutomationRule(
+  overrides: Partial<ModelMappingAutoRule> = {},
+): ModelMappingAutoRule {
+  return {
+    enabled: overrides.enabled ?? true,
+    from: overrides.from ?? "",
+    to: overrides.to ?? "",
+    source: overrides.source ?? "manual",
+    updated_at: overrides.updated_at ?? "",
+  };
+}
+
+function assignModelMappingAutomationSettings(settings: ModelMappingAutomationSettings) {
+  modelMappingAutomationForm.batch_test_concurrency =
+    Number(settings.batch_test_concurrency) || 3;
+  modelMappingAutomationForm.rules = Array.isArray(settings.rules)
+    ? settings.rules.map((rule) => createModelMappingAutomationRule(rule))
+    : [];
+}
+
+function addModelMappingAutomationRule() {
+  modelMappingAutomationForm.rules.push(createModelMappingAutomationRule());
+}
+
+function removeModelMappingAutomationRule(index: number) {
+  modelMappingAutomationForm.rules.splice(index, 1);
+}
+
 // ── codex_cli_only 黑/白名单结构化编辑（行 ↔ JSON）──
 interface CodexClientRow {
   originator: string;
@@ -11476,6 +11621,49 @@ async function saveRateLimit429CooldownSettings() {
   }
 }
 
+// Model Mapping Automation 方法
+async function loadModelMappingAutomationSettings() {
+  modelMappingAutomationLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getModelMappingAutomationSettings();
+    assignModelMappingAutomationSettings(settings);
+  } catch (_error: unknown) {
+    appStore.showError(t("admin.settings.site.loadModelMappingAutomationFailed"));
+  } finally {
+    modelMappingAutomationLoading.value = false;
+  }
+}
+
+async function saveModelMappingAutomationSettings() {
+  modelMappingAutomationSaving.value = true;
+  try {
+    const concurrency = Math.floor(
+      Number(modelMappingAutomationForm.batch_test_concurrency),
+    );
+    const updated = await adminAPI.settings.updateModelMappingAutomationSettings({
+      batch_test_concurrency: Number.isInteger(concurrency) ? concurrency : 3,
+      rules: modelMappingAutomationForm.rules.map((rule) => ({
+        enabled: rule.enabled !== false,
+        from: rule.from,
+        to: rule.to,
+        source: rule.source || "manual",
+        updated_at: rule.updated_at || "",
+      })),
+    });
+    assignModelMappingAutomationSettings(updated);
+    appStore.showSuccess(t("admin.settings.site.saveModelMappingAutomationSuccess"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.site.saveModelMappingAutomationFailed"),
+      ),
+    );
+  } finally {
+    modelMappingAutomationSaving.value = false;
+  }
+}
+
 // Gateway Failover Policy 方法
 async function loadGatewayFailoverPolicySettings() {
   gatewayFailoverPolicyLoading.value = true;
@@ -12144,6 +12332,7 @@ onMounted(() => {
   loadOllamaCloudUsageSettings();
   loadOverloadCooldownSettings();
   loadRateLimit429CooldownSettings();
+  loadModelMappingAutomationSettings();
   loadGatewayFailoverPolicySettings();
   loadStreamTimeoutSettings();
   loadRectifierSettings();

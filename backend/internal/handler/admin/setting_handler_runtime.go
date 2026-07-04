@@ -207,6 +207,39 @@ func (h *SettingHandler) UpdateGatewayFailoverPolicySettings(c *gin.Context) {
 	response.Success(c, gatewayFailoverPolicyDTO(updatedSettings))
 }
 
+// GetModelMappingAutomationSettings 获取模型映射自动化配置
+// GET /api/v1/admin/settings/model-mapping-automation
+func (h *SettingHandler) GetModelMappingAutomationSettings(c *gin.Context) {
+	settings, err := h.settingService.GetModelMappingAutomationSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
+
+// UpdateModelMappingAutomationSettings 更新模型映射自动化配置
+// PUT /api/v1/admin/settings/model-mapping-automation
+func (h *SettingHandler) UpdateModelMappingAutomationSettings(c *gin.Context) {
+	var req service.ModelMappingAutomationSettings
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	if err := h.settingService.SetModelMappingAutomationSettings(c.Request.Context(), &req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	updatedSettings, err := h.settingService.GetModelMappingAutomationSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, updatedSettings)
+}
+
 // GetStreamTimeoutSettings 获取流超时处理配置
 // GET /api/v1/admin/settings/stream-timeout
 func (h *SettingHandler) GetStreamTimeoutSettings(c *gin.Context) {

@@ -146,6 +146,10 @@ type SystemSettings struct {
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 
+	// Account model tools
+	ModelMappingAutoRules     []ModelMappingAutoRule
+	ModelBatchTestConcurrency int
+
 	DefaultConcurrency           int
 	DefaultBalance               float64
 	RiskControlEnabled           bool

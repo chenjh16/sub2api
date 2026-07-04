@@ -544,6 +544,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// 网关故障转移增强策略配置
 		adminSettings.GET("/gateway-failover-policy", h.Admin.Setting.GetGatewayFailoverPolicySettings)
 		adminSettings.PUT("/gateway-failover-policy", h.Admin.Setting.UpdateGatewayFailoverPolicySettings)
+		// 模型映射自动化配置
+		adminSettings.GET("/model-mapping-automation", h.Admin.Setting.GetModelMappingAutomationSettings)
+		adminSettings.PUT("/model-mapping-automation", h.Admin.Setting.UpdateModelMappingAutomationSettings)
 		// 流超时处理配置
 		adminSettings.GET("/stream-timeout", h.Admin.Setting.GetStreamTimeoutSettings)
 		adminSettings.PUT("/stream-timeout", h.Admin.Setting.UpdateStreamTimeoutSettings)
