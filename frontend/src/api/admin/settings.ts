@@ -143,6 +143,19 @@ export interface WeChatConnectModeOption {
   labelEn: string;
 }
 
+export interface ModelMappingAutoRule {
+  enabled: boolean;
+  from: string;
+  to: string;
+  source?: string;
+  updated_at?: string;
+}
+
+export interface ModelMappingAutomationSettings {
+  rules: ModelMappingAutoRule[];
+  batch_test_concurrency: number;
+}
+
 const AUTH_SOURCE_TYPES: AuthSourceType[] = [
   "email",
   "linuxdo",
@@ -1466,6 +1479,23 @@ export async function updateGatewayFailoverPolicySettings(
   return data;
 }
 
+export async function getModelMappingAutomationSettings(): Promise<ModelMappingAutomationSettings> {
+  const { data } = await apiClient.get<ModelMappingAutomationSettings>(
+    "/admin/settings/model-mapping-automation",
+  );
+  return data;
+}
+
+export async function updateModelMappingAutomationSettings(
+  settings: ModelMappingAutomationSettings,
+): Promise<ModelMappingAutomationSettings> {
+  const { data } = await apiClient.put<ModelMappingAutomationSettings>(
+    "/admin/settings/model-mapping-automation",
+    settings,
+  );
+  return data;
+}
+
 // ==================== Stream Timeout Settings ====================
 
 /**
@@ -1697,6 +1727,8 @@ export const settingsAPI = {
   updatePanelRateLimitSettings,
   getGatewayFailoverPolicySettings,
   updateGatewayFailoverPolicySettings,
+  getModelMappingAutomationSettings,
+  updateModelMappingAutomationSettings,
   getStreamTimeoutSettings,
   updateStreamTimeoutSettings,
   getRectifierSettings,
