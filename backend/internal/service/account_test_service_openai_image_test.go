@@ -13,6 +13,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestIsOpenAIImageModelRecognizesCommonCompatibleNames(t *testing.T) {
+	trueCases := []string{
+		"gpt-image-2",
+		"models/gpt-image-2",
+		"dall-e-3",
+		"flux-kontext-pro",
+		"imagen-4",
+		"stable-diffusion-xl",
+		"provider/imagegen-pro",
+		"sdxl-turbo",
+	}
+	for _, model := range trueCases {
+		t.Run(model, func(t *testing.T) {
+			require.True(t, isOpenAIImageModel(model))
+		})
+	}
+
+	falseCases := []string{
+		"",
+		"gpt-5.5",
+		"gemini-3.5-flash-thinking",
+		"my-image-wrapper-test",
+		"text-to-image-analysis",
+	}
+	for _, model := range falseCases {
+		t.Run(model, func(t *testing.T) {
+			require.False(t, isOpenAIImageModel(model))
+		})
+	}
+}
+
 func TestAccountTestService_OpenAIImageOAuthHandlesOutputItemDoneFallback(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
