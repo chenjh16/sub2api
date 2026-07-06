@@ -1670,17 +1670,23 @@
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
               <ModelWhitelistSelector
-                v-model="allowedModels"
+                v-model="modelCandidates"
+                v-model:enabledModels="allowedModels"
                 v-model:modelMappings="modelMappings"
                 :platform="form.platform"
                 :sync-credentials="syncPreviewCredentials"
                 :enable-mapping-tools="true"
                 :enable-model-testing="false"
+                :enable-model-selection="true"
+                :enable-auto-refresh-settings="true"
+                v-model:autoRefreshEnabled="modelAutoRefreshEnabled"
+                v-model:autoRefreshIntervalMinutes="modelAutoRefreshIntervalMinutes"
+                v-model:autoRefreshTestFilterEnabled="modelAutoRefreshTestFilterEnabled"
                 @upstream-synced="upstreamModelsPreviewed = true"
               />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-                <span v-if="allowedModels.length === 0">{{
+                <span v-if="modelCandidates.length === 0 && allowedModels.length === 0 && modelMappings.length === 0">{{
                   t('admin.accounts.supportsAllModels')
                 }}</span>
               </p>
@@ -2202,17 +2208,23 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
-              v-model="allowedModels"
+              v-model="modelCandidates"
+              v-model:enabledModels="allowedModels"
               v-model:modelMappings="modelMappings"
               platform="anthropic"
               :sync-credentials="syncPreviewCredentials"
               :enable-mapping-tools="true"
               :enable-model-testing="false"
+              :enable-model-selection="true"
+              :enable-auto-refresh-settings="true"
+              v-model:autoRefreshEnabled="modelAutoRefreshEnabled"
+              v-model:autoRefreshIntervalMinutes="modelAutoRefreshIntervalMinutes"
+              v-model:autoRefreshTestFilterEnabled="modelAutoRefreshTestFilterEnabled"
               @upstream-synced="upstreamModelsPreviewed = true"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-              <span v-if="allowedModels.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
+              <span v-if="modelCandidates.length === 0 && allowedModels.length === 0 && modelMappings.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
             </p>
           </div>
 
@@ -2546,17 +2558,23 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
-              v-model="allowedModels"
+              v-model="modelCandidates"
+              v-model:enabledModels="allowedModels"
               v-model:modelMappings="modelMappings"
               :platform="form.platform"
               :sync-credentials="syncPreviewCredentials"
               :enable-mapping-tools="true"
               :enable-model-testing="false"
+              :enable-model-selection="true"
+              :enable-auto-refresh-settings="true"
+              v-model:autoRefreshEnabled="modelAutoRefreshEnabled"
+              v-model:autoRefreshIntervalMinutes="modelAutoRefreshIntervalMinutes"
+              v-model:autoRefreshTestFilterEnabled="modelAutoRefreshTestFilterEnabled"
               @upstream-synced="upstreamModelsPreviewed = true"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-              <span v-if="allowedModels.length === 0">{{
+              <span v-if="modelCandidates.length === 0 && allowedModels.length === 0 && modelMappings.length === 0">{{
                 t('admin.accounts.supportsAllModels')
               }}</span>
             </p>
@@ -4139,6 +4157,8 @@ import {
   commonErrorCodes,
   buildModelMappingObject,
   fetchAntigravityDefaultMappings,
+  mergeModelCandidateList,
+  normalizeModelList,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
 import { adminAPI } from '@/api/admin'
@@ -4648,6 +4668,7 @@ const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
 const upstreamModelsPreviewed = ref(false)
+const modelCandidates = ref<string[]>([])
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
@@ -4656,6 +4677,12 @@ const explicitCacheUpstreamEnabled = ref(false)
 const explicitCacheUpstreamMaxTTL = ref<string | number>('')
 const poolModeRetryCount = ref(DEFAULT_POOL_MODE_RETRY_COUNT)
 const poolModeRetryStatusCodesInput = ref('')
+const DEFAULT_MODEL_AUTO_REFRESH_INTERVAL_MINUTES = 1440
+const MIN_MODEL_AUTO_REFRESH_INTERVAL_MINUTES = 10
+const MAX_MODEL_AUTO_REFRESH_INTERVAL_MINUTES = 43200
+const modelAutoRefreshEnabled = ref(false)
+const modelAutoRefreshIntervalMinutes = ref(DEFAULT_MODEL_AUTO_REFRESH_INTERVAL_MINUTES)
+const modelAutoRefreshTestFilterEnabled = ref(false)
 
 function parsePoolModeRetryStatusCodes(input: string): number[] {
   if (!input || !input.trim()) return []
@@ -4880,6 +4907,63 @@ function buildAntigravityExtra(): Record<string, unknown> | undefined {
 const buildOpenAICompactModelMapping = () =>
   buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
 
+const applyModelSelectionCredentials = (credentials: Record<string, unknown>, shouldApply = true) => {
+  if (!shouldApply || modelRestrictionMode.value !== 'whitelist') {
+    delete credentials.model_candidates
+    delete credentials.model_selection_enabled
+    applyModelAutoRefreshCredentials(credentials, false)
+    return
+  }
+
+  const candidates = mergeModelCandidateList(modelCandidates.value, allowedModels.value)
+  if (candidates.length === 0) {
+    delete credentials.model_candidates
+    delete credentials.model_selection_enabled
+  } else {
+    credentials.model_candidates = candidates
+    credentials.model_selection_enabled = true
+  }
+
+  applyModelAutoRefreshCredentials(credentials, true)
+}
+
+const normalizeModelAutoRefreshInterval = (value: unknown) => {
+  const raw = Number(value)
+  if (!Number.isFinite(raw)) return DEFAULT_MODEL_AUTO_REFRESH_INTERVAL_MINUTES
+  return Math.min(
+    MAX_MODEL_AUTO_REFRESH_INTERVAL_MINUTES,
+    Math.max(MIN_MODEL_AUTO_REFRESH_INTERVAL_MINUTES, Math.floor(raw))
+  )
+}
+
+const resetModelAutoRefreshSettings = () => {
+  modelAutoRefreshEnabled.value = false
+  modelAutoRefreshIntervalMinutes.value = DEFAULT_MODEL_AUTO_REFRESH_INTERVAL_MINUTES
+  modelAutoRefreshTestFilterEnabled.value = false
+}
+
+const clearModelAutoRefreshCredentials = (credentials: Record<string, unknown>) => {
+  delete credentials.model_auto_refresh_enabled
+  delete credentials.model_auto_refresh_interval_minutes
+  delete credentials.model_auto_refresh_test_filter_enabled
+}
+
+const applyModelAutoRefreshCredentials = (credentials: Record<string, unknown>, shouldApply = true) => {
+  if (!shouldApply || !modelAutoRefreshEnabled.value) {
+    clearModelAutoRefreshCredentials(credentials)
+    return
+  }
+  credentials.model_auto_refresh_enabled = true
+  credentials.model_auto_refresh_interval_minutes = normalizeModelAutoRefreshInterval(
+    modelAutoRefreshIntervalMinutes.value
+  )
+  if (modelAutoRefreshTestFilterEnabled.value) {
+    credentials.model_auto_refresh_test_filter_enabled = true
+  } else {
+    delete credentials.model_auto_refresh_test_filter_enabled
+  }
+}
+
 const showMixedChannelWarning = ref(false)
 const mixedChannelWarningDetails = ref<{ groupName: string; currentPlatform: string; otherPlatform: string } | null>(
   null
@@ -5103,7 +5187,8 @@ watch(
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
         .catch(() => { tlsFingerprintProfiles.value = [] })
       // Modal opened - fill related models
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      allowedModels.value = normalizeModelList(getModelsByPlatform(form.platform))
+      modelCandidates.value = mergeModelCandidateList(allowedModels.value, allowedModels.value)
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
@@ -5170,7 +5255,9 @@ watch(
     // Clear model-related settings
     allowedModels.value = []
     upstreamModelsPreviewed.value = false
+    modelCandidates.value = []
     modelMappings.value = []
+    resetModelAutoRefreshSettings()
     if (newPlatform === 'typesafe') {
       accountCategory.value = 'apikey'
       // Grok 等平台会把模式切到映射；TypeSafe 只用白名单写入 jev-latest。
@@ -5300,7 +5387,8 @@ watch(
   [modelRestrictionMode, () => form.platform],
   ([newMode]) => {
     if (newMode === 'whitelist') {
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      allowedModels.value = normalizeModelList(getModelsByPlatform(form.platform))
+      modelCandidates.value = mergeModelCandidateList(modelCandidates.value, allowedModels.value)
     }
   }
 )
@@ -5662,7 +5750,9 @@ const resetForm = () => {
   modelMappings.value = []
   openAICompactModelMappings.value = []
   modelRestrictionMode.value = 'whitelist'
-  allowedModels.value = [...claudeModels] // Default fill related models
+  allowedModels.value = normalizeModelList(claudeModels) // Default fill related models
+  modelCandidates.value = mergeModelCandidateList(allowedModels.value, allowedModels.value)
+  resetModelAutoRefreshSettings()
 
   antigravityModelRestrictionMode.value = 'mapping'
   antigravityWhitelistModels.value = []
@@ -6018,6 +6108,7 @@ const handleSubmit = async () => {
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     }
+    applyModelSelectionCredentials(credentials, true)
 
     // Pool mode
     if (poolModeEnabled.value) {
@@ -6114,6 +6205,11 @@ const handleSubmit = async () => {
       location: vertexLocation.value.trim(),
       tier_id: 'vertex'
     }
+    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    if (modelMapping) {
+      credentials.model_mapping = modelMapping
+    }
+    applyModelSelectionCredentials(credentials, true)
     await createAccountAndFinish(form.platform, 'service_account' as AccountType, credentials)
     return
   }
@@ -6185,6 +6281,7 @@ const handleSubmit = async () => {
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     }
+    applyModelSelectionCredentials(credentials, true)
   }
   if (form.platform === 'openai') {
     applyOpenAIEndpointCapabilities(credentials)
@@ -6354,6 +6451,7 @@ const createAccountAndFinish = async (
     } else {
       delete credentials.model_mapping
     }
+    applyModelSelectionCredentials(credentials, true)
   }
   await doCreateAccount({
     name: form.name,
@@ -6418,6 +6516,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
         if (modelMapping) {
           credentials.model_mapping = modelMapping
         }
+        applyModelSelectionCredentials(credentials, true)
         if (!applyTempUnschedConfig(credentials)) {
           return
         }
@@ -6684,6 +6783,7 @@ const handleOpenAIExchange = async (authCode: string) => {
       if (modelMapping) {
         credentials.model_mapping = modelMapping
       }
+      applyModelSelectionCredentials(credentials, true)
     }
     if (shouldCreateOpenAI) {
       const compactModelMapping = buildOpenAICompactModelMapping()
@@ -6738,6 +6838,7 @@ const buildOpenAICodexImportCredentialExtras = (): Record<string, unknown> | nul
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     }
+    applyModelSelectionCredentials(credentials, true)
   }
 
   const compactModelMapping = buildOpenAICompactModelMapping()
@@ -6966,6 +7067,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
           if (modelMapping) {
             credentials.model_mapping = modelMapping
           }
+          applyModelSelectionCredentials(credentials, true)
         }
         if (shouldCreateOpenAI) {
           const compactModelMapping = buildOpenAICompactModelMapping()
