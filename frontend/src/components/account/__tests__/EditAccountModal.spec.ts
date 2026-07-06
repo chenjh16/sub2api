@@ -73,15 +73,19 @@ const ModelWhitelistSelectorStub = defineComponent({
     modelValue: {
       type: Array,
       default: () => []
+    },
+    enabledModels: {
+      type: Array,
+      default: () => []
     }
   },
-  emits: ['update:modelValue'],
+  emits: ['update:modelValue', 'update:enabledModels'],
   template: `
     <div>
       <button
         type="button"
         data-testid="rewrite-to-snapshot"
-        @click="$emit('update:modelValue', ['gpt-5.2-2025-12-11'])"
+        @click="$emit('update:modelValue', ['gpt-5.2-2025-12-11']); $emit('update:enabledModels', ['gpt-5.2-2025-12-11'])"
       >
         rewrite
       </button>
