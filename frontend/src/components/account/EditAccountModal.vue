@@ -461,12 +461,18 @@
             <ModelWhitelistSelector
               ref="grokApiKeyWhitelistRef"
               v-show="modelRestrictionMode === 'whitelist'"
-              v-model="allowedModels"
+              v-model="modelCandidates"
+              v-model:enabledModels="allowedModels"
               v-model:modelMappings="modelMappings"
               :platform="account?.platform || 'anthropic'"
               :account-id="account?.id"
               :enable-mapping-tools="true"
               :enable-model-testing="true"
+              :enable-model-selection="true"
+              :enable-auto-refresh-settings="true"
+              v-model:autoRefreshEnabled="modelAutoRefreshEnabled"
+              v-model:autoRefreshIntervalMinutes="modelAutoRefreshIntervalMinutes"
+              v-model:autoRefreshTestFilterEnabled="modelAutoRefreshTestFilterEnabled"
               :show-sync-button="account.platform !== 'grok' || !account.id"
               @upstream-sync-finished="refreshGrokDiagnostics"
             />
@@ -475,7 +481,7 @@
             <div v-if="modelRestrictionMode === 'whitelist'">
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-                <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
+                <span v-if="modelCandidates.length === 0 && allowedModels.length === 0 && modelMappings.length === 0">{{
                   t('admin.accounts.supportsAllModels')
                 }}</span>
               </p>
@@ -1128,12 +1134,18 @@
           <ModelWhitelistSelector
             ref="grokOAuthWhitelistRef"
             v-show="modelRestrictionMode === 'whitelist'"
-            v-model="allowedModels"
+            v-model="modelCandidates"
+            v-model:enabledModels="allowedModels"
             v-model:modelMappings="modelMappings"
             :platform="account?.platform || 'anthropic'"
             :account-id="account?.id"
             :enable-mapping-tools="true"
             :enable-model-testing="true"
+            :enable-model-selection="true"
+            :enable-auto-refresh-settings="true"
+            v-model:autoRefreshEnabled="modelAutoRefreshEnabled"
+            v-model:autoRefreshIntervalMinutes="modelAutoRefreshIntervalMinutes"
+            v-model:autoRefreshTestFilterEnabled="modelAutoRefreshTestFilterEnabled"
             :show-sync-button="account.platform !== 'grok' || !account.id"
             @upstream-sync-finished="refreshGrokDiagnostics"
           />
@@ -1142,7 +1154,7 @@
           <div v-if="modelRestrictionMode === 'whitelist'">
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-              <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
+              <span v-if="modelCandidates.length === 0 && allowedModels.length === 0 && modelMappings.length === 0">{{
                 t('admin.accounts.supportsAllModels')
               }}</span>
             </p>
@@ -1413,16 +1425,22 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
-              v-model="allowedModels"
+              v-model="modelCandidates"
+              v-model:enabledModels="allowedModels"
               v-model:modelMappings="modelMappings"
               :platform="account?.platform || 'anthropic'"
               :account-id="account?.id"
               :enable-mapping-tools="true"
               :enable-model-testing="true"
+              :enable-model-selection="true"
+              :enable-auto-refresh-settings="true"
+              v-model:autoRefreshEnabled="modelAutoRefreshEnabled"
+              v-model:autoRefreshIntervalMinutes="modelAutoRefreshIntervalMinutes"
+              v-model:autoRefreshTestFilterEnabled="modelAutoRefreshTestFilterEnabled"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-              <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
+              <span v-if="modelCandidates.length === 0 && allowedModels.length === 0 && modelMappings.length === 0">{{
                 t('admin.accounts.supportsAllModels')
               }}</span>
             </p>
@@ -1642,16 +1660,22 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
-              v-model="allowedModels"
+              v-model="modelCandidates"
+              v-model:enabledModels="allowedModels"
               v-model:modelMappings="modelMappings"
               platform="anthropic"
               :account-id="account?.id"
               :enable-mapping-tools="true"
               :enable-model-testing="true"
+              :enable-model-selection="true"
+              :enable-auto-refresh-settings="true"
+              v-model:autoRefreshEnabled="modelAutoRefreshEnabled"
+              v-model:autoRefreshIntervalMinutes="modelAutoRefreshIntervalMinutes"
+              v-model:autoRefreshTestFilterEnabled="modelAutoRefreshTestFilterEnabled"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-              <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
+              <span v-if="modelCandidates.length === 0 && allowedModels.length === 0 && modelMappings.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
             </p>
           </div>
 
@@ -3754,6 +3778,8 @@ import {
   getPresetMappingsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
+  mergeModelCandidateList,
+  normalizeModelList,
   splitModelMappingObject,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
@@ -4094,6 +4120,7 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+const modelCandidates = ref<string[]>([])
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
@@ -4103,6 +4130,12 @@ const explicitCacheUpstreamEnabled = ref(false)
 const explicitCacheUpstreamMaxTTL = ref<string | number>('')
 const poolModeRetryCount = ref(DEFAULT_POOL_MODE_RETRY_COUNT)
 const poolModeRetryStatusCodesInput = ref('')
+const DEFAULT_MODEL_AUTO_REFRESH_INTERVAL_MINUTES = 1440
+const MIN_MODEL_AUTO_REFRESH_INTERVAL_MINUTES = 10
+const MAX_MODEL_AUTO_REFRESH_INTERVAL_MINUTES = 43200
+const modelAutoRefreshEnabled = ref(false)
+const modelAutoRefreshIntervalMinutes = ref(DEFAULT_MODEL_AUTO_REFRESH_INTERVAL_MINUTES)
+const modelAutoRefreshTestFilterEnabled = ref(false)
 const modelsSyncHeadersEnabled = ref(false)
 const modelsSyncUserAgentMode = ref<'default' | 'custom'>('default')
 const modelsSyncUserAgent = ref('')
@@ -4892,9 +4925,13 @@ const normalizePoolModeRetryCount = (value: number) => {
   return normalized
 }
 
-const loadModelRestrictionFromMapping = (rawMapping?: Record<string, unknown>) => {
+const loadModelRestrictionFromMapping = (
+  rawMapping?: Record<string, unknown>,
+  rawCandidates?: unknown
+) => {
   const parsed = splitModelMappingObject(rawMapping)
-  allowedModels.value = parsed.allowedModels
+  allowedModels.value = normalizeModelList(parsed.allowedModels)
+  modelCandidates.value = mergeModelCandidateList(rawCandidates, allowedModels.value)
   modelMappings.value = parsed.modelMappings
   modelRestrictionMode.value =
     parsed.modelMappings.length > 0 && parsed.allowedModels.length === 0
@@ -4905,7 +4942,88 @@ const loadModelRestrictionFromMapping = (rawMapping?: Record<string, unknown>) =
 const buildModelRestrictionMapping = () =>
   buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
 
-const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>) => {
+const applyModelSelectionCredentials = (credentials: Record<string, unknown>, shouldApply = true) => {
+  if (!shouldApply || modelRestrictionMode.value !== 'whitelist') {
+    delete credentials.model_candidates
+    delete credentials.model_selection_enabled
+    applyModelAutoRefreshCredentials(credentials, false)
+    return
+  }
+
+  const candidates = mergeModelCandidateList(modelCandidates.value, allowedModels.value)
+  if (candidates.length === 0) {
+    delete credentials.model_candidates
+    delete credentials.model_selection_enabled
+  } else {
+    credentials.model_candidates = candidates
+    credentials.model_selection_enabled = true
+  }
+
+  applyModelAutoRefreshCredentials(credentials, true)
+}
+
+const normalizeModelAutoRefreshInterval = (value: unknown) => {
+  const raw = Number(value)
+  if (!Number.isFinite(raw)) return DEFAULT_MODEL_AUTO_REFRESH_INTERVAL_MINUTES
+  return Math.min(
+    MAX_MODEL_AUTO_REFRESH_INTERVAL_MINUTES,
+    Math.max(MIN_MODEL_AUTO_REFRESH_INTERVAL_MINUTES, Math.floor(raw))
+  )
+}
+
+const resetModelAutoRefreshSettings = () => {
+  modelAutoRefreshEnabled.value = false
+  modelAutoRefreshIntervalMinutes.value = DEFAULT_MODEL_AUTO_REFRESH_INTERVAL_MINUTES
+  modelAutoRefreshTestFilterEnabled.value = false
+}
+
+const loadModelAutoRefreshSettings = (credentials?: Record<string, unknown>) => {
+  if (!credentials) {
+    resetModelAutoRefreshSettings()
+    return
+  }
+  modelAutoRefreshEnabled.value = parseCredentialBoolean(credentials.model_auto_refresh_enabled) === true
+  modelAutoRefreshIntervalMinutes.value = normalizeModelAutoRefreshInterval(
+    credentials.model_auto_refresh_interval_minutes
+  )
+  modelAutoRefreshTestFilterEnabled.value =
+    parseCredentialBoolean(credentials.model_auto_refresh_test_filter_enabled) === true
+}
+
+const clearModelAutoRefreshCredentials = (credentials: Record<string, unknown>, clearRuntime = false) => {
+  delete credentials.model_auto_refresh_enabled
+  delete credentials.model_auto_refresh_interval_minutes
+  delete credentials.model_auto_refresh_test_filter_enabled
+  if (clearRuntime) {
+    delete credentials.model_auto_refresh_last_run_at
+    delete credentials.model_auto_refresh_last_success_at
+    delete credentials.model_auto_refresh_last_error
+    delete credentials.model_auto_refresh_last_synced_count
+    delete credentials.model_auto_refresh_last_enabled_count
+    delete credentials.model_auto_refresh_last_failed_count
+  }
+}
+
+const applyModelAutoRefreshCredentials = (credentials: Record<string, unknown>, shouldApply = true) => {
+  if (!shouldApply || !modelAutoRefreshEnabled.value) {
+    clearModelAutoRefreshCredentials(credentials, true)
+    return
+  }
+  credentials.model_auto_refresh_enabled = true
+  credentials.model_auto_refresh_interval_minutes = normalizeModelAutoRefreshInterval(
+    modelAutoRefreshIntervalMinutes.value
+  )
+  if (modelAutoRefreshTestFilterEnabled.value) {
+    credentials.model_auto_refresh_test_filter_enabled = true
+  } else {
+    delete credentials.model_auto_refresh_test_filter_enabled
+  }
+}
+
+const applyOpenAIModelMappingCredentials = (
+  credentials: Record<string, unknown>,
+  shouldApplySelection = true
+) => {
   const shouldApplyModelMapping = !openaiPassthroughEnabled.value
 
   if (shouldApplyModelMapping) {
@@ -4915,6 +5033,7 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
     } else {
       delete credentials.model_mapping
     }
+    applyModelSelectionCredentials(credentials, shouldApplySelection)
   } else if (!credentials.model_mapping) {
     delete credentials.model_mapping
   }
@@ -4957,6 +5076,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
+  loadModelAutoRefreshSettings(credentials)
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
   editVertexProjectId.value = ''
   editVertexClientEmail.value = ''
@@ -5309,7 +5429,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     }
 
     // Load model mappings and detect mode
-    loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
+    loadModelRestrictionFromMapping(
+      credentials.model_mapping as Record<string, unknown> | undefined,
+      credentials.model_candidates
+    )
 
     // Load pool mode
     poolModeEnabled.value = credentials.pool_mode === true
@@ -5360,7 +5483,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     loadQuotaNotifyFromExtra(bedrockExtra)
 
     // Load model mappings for bedrock
-    loadModelRestrictionFromMapping(bedrockCreds.model_mapping as Record<string, unknown> | undefined)
+    loadModelRestrictionFromMapping(
+      bedrockCreds.model_mapping as Record<string, unknown> | undefined,
+      bedrockCreds.model_candidates
+    )
   } else if (newAccount.type === 'upstream' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
     editBaseUrl.value = (credentials.base_url as string) || ''
@@ -5372,7 +5498,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editVertexApiKey.value = ''
 
     // Load model mappings for service_account
-    loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
+    loadModelRestrictionFromMapping(
+      credentials.model_mapping as Record<string, unknown> | undefined,
+      credentials.model_candidates
+    )
   } else {
     const platformDefaultUrl =
       newAccount.platform === 'openai'
@@ -5387,11 +5516,15 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     // Load model mappings for OpenAI/Grok OAuth accounts
     if ((newAccount.platform === 'openai' || newAccount.platform === 'grok') && newAccount.credentials) {
       const oauthCredentials = newAccount.credentials as Record<string, unknown>
-      loadModelRestrictionFromMapping(oauthCredentials.model_mapping as Record<string, unknown> | undefined)
+      loadModelRestrictionFromMapping(
+        oauthCredentials.model_mapping as Record<string, unknown> | undefined,
+        oauthCredentials.model_candidates
+      )
     } else {
       modelRestrictionMode.value = 'whitelist'
       modelMappings.value = []
       allowedModels.value = []
+      modelCandidates.value = []
     }
     poolModeEnabled.value = false
     poolModeRetryCount.value = DEFAULT_POOL_MODE_RETRY_COUNT
@@ -6131,6 +6264,7 @@ const handleSubmit = async () => {
         } else {
           delete newCredentials.model_mapping
         }
+        applyModelSelectionCredentials(newCredentials, true)
       } else if (currentCredentials.model_mapping) {
         newCredentials.model_mapping = currentCredentials.model_mapping
       }
@@ -6303,6 +6437,7 @@ const handleSubmit = async () => {
       } else {
         delete newCredentials.model_mapping
       }
+      applyModelSelectionCredentials(newCredentials, true)
 
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
       applyAccountSchedulingThresholdOverridePatch(newCredentials, currentCredentials)
@@ -6361,6 +6496,7 @@ const handleSubmit = async () => {
       } else {
         delete newCredentials.model_mapping
       }
+      applyModelSelectionCredentials(newCredentials, true)
 
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
       applyAccountSchedulingThresholdOverridePatch(newCredentials, currentCredentials)
@@ -6391,7 +6527,7 @@ const handleSubmit = async () => {
           ((props.account.credentials as Record<string, unknown>) || {})
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
       if (props.account.platform === 'openai') {
-        applyOpenAIModelMappingCredentials(newCredentials)
+        applyOpenAIModelMappingCredentials(newCredentials, !isSparkShadow.value)
       } else {
         const modelMapping = buildModelRestrictionMapping()
         if (modelMapping) {
@@ -6399,6 +6535,7 @@ const handleSubmit = async () => {
         } else {
           delete newCredentials.model_mapping
         }
+        applyModelSelectionCredentials(newCredentials, true)
       }
 
       updatePayload.credentials = newCredentials
