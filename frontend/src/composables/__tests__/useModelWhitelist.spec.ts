@@ -4,7 +4,14 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
-import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
+import {
+  buildModelMappingObject,
+  getModelsByPlatform,
+  getPresetMappingsByPlatform,
+  mergeModelCandidateList,
+  normalizeModelList,
+  splitModelMappingObject
+} from '../useModelWhitelist'
 import { BUILTIN_PLATFORM_CATALOG, resetPlatformCatalog, setPlatformCatalog } from '@/constants/platformCatalog'
 
 describe('useModelWhitelist', () => {
@@ -225,5 +232,13 @@ describe('useModelWhitelist', () => {
       allowedModels: ['gpt-5.4'],
       modelMappings: [{ from: 'gpt-latest', to: 'gpt-5.4' }]
     })
+  })
+
+  it('normalizes model candidate lists and keeps enabled models visible', () => {
+    expect(normalizeModelList([' gpt-5.4 ', '', 'gpt-5.4', 123])).toEqual(['gpt-5.4'])
+    expect(mergeModelCandidateList(['DeepSeek-V4-Pro'], ['gpt-5.4', 'DeepSeek-V4-Pro'])).toEqual([
+      'DeepSeek-V4-Pro',
+      'gpt-5.4'
+    ])
   })
 })

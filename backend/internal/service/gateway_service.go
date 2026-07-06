@@ -216,8 +216,11 @@ func anthropicStreamEventIsTerminal(eventName, data string) bool {
 }
 
 func cloneStringSlice(src []string) []string {
-	if len(src) == 0 {
+	if src == nil {
 		return nil
+	}
+	if len(src) == 0 {
+		return []string{}
 	}
 	dst := make([]string, len(src))
 	copy(dst, src)
@@ -1443,17 +1446,20 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		}
 
 		mapping := acc.GetModelMapping()
-		for model := range mapping {
-			// Accounts pulled in through mixed scheduling only contribute the
-			// models that belong to the listing platform (e.g. an antigravity
-			// account's claude-* mappings must not surface on a gemini group).
-			if platform != "" && acc.Platform != platform && !mixedListingModelAllowed(platform, model) {
-				continue
+			if acc.IsModelSelectionEnabled() {
+				hasAnyMapping = true
 			}
-			modelSet[model] = struct{}{}
-			hasAnyMapping = true
+			for model := range mapping {
+				// Accounts pulled in through mixed scheduling only contribute the
+				// models that belong to the listing platform (e.g. an antigravity
+				// account's claude-* mappings must not surface on a gemini group).
+				if platform != "" && acc.Platform != platform && !mixedListingModelAllowed(platform, model) {
+					continue
+				}
+				modelSet[model] = struct{}{}
+				hasAnyMapping = true
+			}
 		}
-	}
 
 	// If no account has model_mapping, return nil (use default)
 	if !hasAnyMapping {

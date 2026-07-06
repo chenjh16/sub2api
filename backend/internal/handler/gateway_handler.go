@@ -1191,7 +1191,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
-	if len(availableModels) > 0 {
+	if availableModels != nil {
 		writeModelsList(c, platform, availableModels)
 		return
 	}
