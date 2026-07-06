@@ -463,6 +463,35 @@ export interface ModelMappingEntry {
   to: string
 }
 
+export function normalizeModelList(models?: unknown): string[] {
+  if (!Array.isArray(models)) return []
+
+  const seen = new Set<string>()
+  const normalized: string[] = []
+  for (const rawModel of models) {
+    if (typeof rawModel !== 'string') continue
+    const model = rawModel.trim()
+    if (!model || seen.has(model)) continue
+    seen.add(model)
+    normalized.push(model)
+  }
+  return normalized
+}
+
+export function mergeModelCandidateList(
+  candidates?: unknown,
+  enabledModels: string[] = []
+): string[] {
+  const merged = normalizeModelList(candidates)
+  const seen = new Set(merged)
+  for (const model of normalizeModelList(enabledModels)) {
+    if (seen.has(model)) continue
+    seen.add(model)
+    merged.push(model)
+  }
+  return merged
+}
+
 export function splitModelMappingObject(
   modelMapping?: Record<string, unknown> | null
 ): { allowedModels: string[]; modelMappings: ModelMappingEntry[] } {

@@ -153,6 +153,22 @@ func TestAccountIsModelSupported(t *testing.T) {
 			requestedModel: "any-model",
 			expected:       true,
 		},
+		{
+			name: "explicit empty model selection allows none",
+			credentials: map[string]any{
+				"model_selection_enabled": true,
+			},
+			requestedModel: "any-model",
+			expected:       false,
+		},
+		{
+			name: "explicit string model selection allows none",
+			credentials: map[string]any{
+				"model_selection_enabled": "true",
+			},
+			requestedModel: "any-model",
+			expected:       false,
+		},
 
 		// 精确匹配
 		{

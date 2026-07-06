@@ -10,7 +10,12 @@
           <span
             v-for="model in modelValue"
             :key="model"
-            class="inline-flex items-center gap-1 rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-dark-600 dark:text-gray-300"
+            :class="[
+              'inline-flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
+              enableModelSelection && !isModelEnabled(model)
+                ? 'bg-gray-50 text-gray-400 dark:bg-dark-700 dark:text-gray-500'
+                : 'bg-gray-100 text-gray-700 dark:bg-dark-600 dark:text-gray-300'
+            ]"
           >
             <span class="flex min-w-0 flex-1 items-center gap-1 truncate">
               <ModelIcon :model="model" size="14px" />
@@ -37,15 +42,35 @@
               <button
                 type="button"
                 @click.stop="removeModel(model)"
+                :title="t('admin.accounts.removeModel')"
+                :aria-label="t('admin.accounts.removeModel')"
                 class="shrink-0 rounded-full hover:bg-gray-200 dark:hover:bg-dark-500"
               >
                 <Icon name="x" size="xs" class="h-3.5 w-3.5" :stroke-width="2" />
+              </button>
+              <button
+                v-if="enableModelSelection"
+                type="button"
+                @click.stop="toggleModelEnabled(model)"
+                :title="modelEnableTitle(model)"
+                :class="[
+                  'shrink-0 rounded-full p-0.5 transition-colors hover:bg-gray-200 dark:hover:bg-dark-500',
+                  isModelEnabled(model)
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
+                ]"
+              >
+                <Icon
+                  :name="isModelEnabled(model) ? 'checkCircle' : 'circle'"
+                  size="sm"
+                  :stroke-width="2.15"
+                />
               </button>
             </span>
           </span>
         </div>
         <div class="mt-2 flex items-center justify-between border-t border-gray-200 pt-2 dark:border-dark-600">
-          <span class="text-xs text-gray-400">{{ t('admin.accounts.modelCount', { count: modelValue.length }) }}</span>
+          <span class="text-xs text-gray-400">{{ modelCountLabel }}</span>
           <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
           </svg>
@@ -147,12 +172,99 @@
         {{ batchTestLabel }}
       </button>
       <button
+        v-if="enableModelSelection && modelValue.length > 0"
+        type="button"
+        @click="enableAllCandidateModels"
+        class="rounded-lg border border-primary-200 px-3 py-1.5 text-sm text-primary-600 hover:bg-primary-50 dark:border-primary-800 dark:text-primary-400 dark:hover:bg-primary-900/30"
+      >
+        {{ t('admin.accounts.enableAllModels') }}
+      </button>
+      <button
+        v-if="enableModelSelection && modelValue.length > 0"
+        type="button"
+        @click="disableAllCandidateModels"
+        class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-dark-500 dark:text-gray-300 dark:hover:bg-dark-600"
+      >
+        {{ t('admin.accounts.disableAllModels') }}
+      </button>
+      <button
         type="button"
         @click="clearAll"
         class="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
       >
         {{ t('admin.accounts.clearAllModels') }}
       </button>
+    </div>
+
+    <div
+      v-if="showAutoRefreshSettings"
+      class="mb-4 rounded-lg border border-primary-100 bg-primary-50/60 p-3 dark:border-primary-900/50 dark:bg-primary-900/10"
+    >
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="text-sm font-medium text-gray-800 dark:text-gray-100">
+            {{ t('admin.accounts.modelAutoRefreshTitle') }}
+          </div>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.modelAutoRefreshDescription') }}
+          </p>
+        </div>
+        <button
+          type="button"
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors"
+          :class="autoRefreshEnabledValue ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'"
+          :title="t('admin.accounts.modelAutoRefreshToggle')"
+          @click="setAutoRefreshEnabled(!autoRefreshEnabledValue)"
+        >
+          <span
+            class="inline-block h-5 w-5 rounded-full bg-white shadow transition-transform"
+            :class="autoRefreshEnabledValue ? 'translate-x-5' : 'translate-x-0.5'"
+          />
+        </button>
+      </div>
+
+      <div v-if="autoRefreshEnabledValue" class="mt-3 grid gap-3 md:grid-cols-2">
+        <label class="block">
+          <span class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+            {{ t('admin.accounts.modelAutoRefreshInterval') }}
+          </span>
+          <input
+            type="number"
+            min="10"
+            max="43200"
+            step="10"
+            class="input w-full text-sm"
+            :value="autoRefreshIntervalValue"
+            @input="setAutoRefreshIntervalFromEvent"
+          />
+          <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.modelAutoRefreshIntervalHint') }}
+          </span>
+        </label>
+
+        <div class="flex items-start gap-3 rounded-lg bg-white/70 p-3 dark:bg-dark-700/50">
+          <button
+            type="button"
+            class="relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors"
+            :class="autoRefreshTestFilterValue ? 'bg-emerald-600' : 'bg-gray-200 dark:bg-dark-600'"
+            :title="t('admin.accounts.modelAutoRefreshTestFilter')"
+            @click="setAutoRefreshTestFilter(!autoRefreshTestFilterValue)"
+          >
+            <span
+              class="inline-block h-5 w-5 rounded-full bg-white shadow transition-transform"
+              :class="autoRefreshTestFilterValue ? 'translate-x-5' : 'translate-x-0.5'"
+            />
+          </button>
+          <div class="min-w-0">
+            <div class="text-sm font-medium text-gray-700 dark:text-gray-200">
+              {{ t('admin.accounts.modelAutoRefreshTestFilter') }}
+            </div>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.modelAutoRefreshTestFilterHint') }}
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Custom Model Input -->
@@ -237,7 +349,7 @@ import { buildApiUrl } from '@/api/client'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { allModels, getModelsByPlatform } from '@/composables/useModelWhitelist'
+import { allModels, getModelsByPlatform, normalizeModelList } from '@/composables/useModelWhitelist'
 import {
   discoverModelMappingSuggestions,
   mergeAutoRulesFromMappings,
@@ -262,13 +374,23 @@ const props = defineProps<{
     api_key: string
   }
   modelMappings?: ModelMappingEntry[]
+  enabledModels?: string[]
   enableMappingTools?: boolean
   enableModelTesting?: boolean
+  enableModelSelection?: boolean
+  enableAutoRefreshSettings?: boolean
+  autoRefreshEnabled?: boolean
+  autoRefreshIntervalMinutes?: number
+  autoRefreshTestFilterEnabled?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
   'update:modelMappings': [value: ModelMappingEntry[]]
+  'update:enabledModels': [value: string[]]
+  'update:autoRefreshEnabled': [value: boolean]
+  'update:autoRefreshIntervalMinutes': [value: number]
+  'update:autoRefreshTestFilterEnabled': [value: boolean]
 }>()
 
 const appStore = useAppStore()
@@ -326,8 +448,27 @@ const canSyncUpstream = computed(() => {
 
 const enableMappingTools = computed(() => props.enableMappingTools === true && Array.isArray(props.modelMappings))
 const canTestModels = computed(() => props.enableModelTesting !== false && Boolean(props.accountId))
+const enableModelSelection = computed(() => props.enableModelSelection === true)
+const showAutoRefreshSettings = computed(() => props.enableAutoRefreshSettings === true && canSyncUpstream.value)
+const autoRefreshEnabledValue = computed(() => props.autoRefreshEnabled === true)
+const autoRefreshTestFilterValue = computed(() => props.autoRefreshTestFilterEnabled === true)
+const autoRefreshIntervalValue = computed(() => normalizeAutoRefreshInterval(props.autoRefreshIntervalMinutes))
 
 const currentModelMappings = computed(() => props.modelMappings || [])
+const enabledModelList = computed(() =>
+  enableModelSelection.value
+    ? normalizeModelList(props.enabledModels || [])
+    : normalizeModelList(props.modelValue)
+)
+const enabledModelSet = computed(() => new Set(enabledModelList.value))
+const modelCountLabel = computed(() =>
+  enableModelSelection.value
+    ? t('admin.accounts.enabledModelCount', {
+        enabled: enabledModelList.value.length,
+        total: props.modelValue.length
+      })
+    : t('admin.accounts.modelCount', { count: props.modelValue.length })
+)
 
 const modelTestSummary = computed(() => {
   let success = 0
@@ -398,6 +539,29 @@ const loadMappingAutomationSettings = async () => {
   }
 }
 
+const normalizeAutoRefreshInterval = (value?: number) => {
+  const raw = Number(value)
+  if (!Number.isFinite(raw)) return 1440
+  return Math.min(43200, Math.max(10, Math.floor(raw)))
+}
+
+const setAutoRefreshEnabled = (enabled: boolean) => {
+  emit('update:autoRefreshEnabled', enabled)
+}
+
+const setAutoRefreshInterval = (value: string | number) => {
+  emit('update:autoRefreshIntervalMinutes', normalizeAutoRefreshInterval(Number(value)))
+}
+
+const setAutoRefreshIntervalFromEvent = (event: Event) => {
+  const input = event.target as HTMLInputElement | null
+  setAutoRefreshInterval(input?.value || '')
+}
+
+const setAutoRefreshTestFilter = (enabled: boolean) => {
+  emit('update:autoRefreshTestFilterEnabled', enabled)
+}
+
 onMounted(() => {
   if (enableMappingTools.value || canTestModels.value) {
     void loadMappingAutomationSettings()
@@ -409,16 +573,76 @@ const toggleDropdown = () => {
   if (!showDropdown.value) searchQuery.value = ''
 }
 
+const emitModels = (models: string[], enabledModels = enabledModelList.value) => {
+  const nextModels = normalizeModelList(models)
+  emit('update:modelValue', nextModels)
+  if (enableModelSelection.value) {
+    const candidateSet = new Set(nextModels)
+    emit('update:enabledModels', normalizeModelList(enabledModels).filter(model => candidateSet.has(model)))
+  }
+}
+
+const addCandidateModels = (models: string[], shouldEnableNewModels: boolean) => {
+  const existingModels = normalizeModelList(props.modelValue)
+  const existingSet = new Set(existingModels)
+  const nextModels = [...existingModels]
+  const nextEnabled = normalizeModelList(enabledModelList.value)
+  const enabledSet = new Set(nextEnabled)
+
+  for (const model of normalizeModelList(models)) {
+    if (!existingSet.has(model)) {
+      existingSet.add(model)
+      nextModels.push(model)
+    }
+    if (shouldEnableNewModels && !enabledSet.has(model)) {
+      enabledSet.add(model)
+      nextEnabled.push(model)
+    }
+  }
+
+  emitModels(nextModels, nextEnabled)
+}
+
+const isModelEnabled = (model: string) => {
+  return !enableModelSelection.value || enabledModelSet.value.has(model)
+}
+
+const modelEnableTitle = (model: string) => {
+  return isModelEnabled(model)
+    ? t('admin.accounts.disableModel')
+    : t('admin.accounts.enableModel')
+}
+
 const removeModel = (model: string) => {
-  emit('update:modelValue', props.modelValue.filter(m => m !== model))
+  emitModels(
+    props.modelValue.filter(m => m !== model),
+    enabledModelList.value.filter(m => m !== model)
+  )
 }
 
 const toggleModel = (model: string) => {
   if (props.modelValue.includes(model)) {
     removeModel(model)
   } else {
-    emit('update:modelValue', [...props.modelValue, model])
+    addCandidateModels([model], true)
   }
+}
+
+const toggleModelEnabled = (model: string) => {
+  if (!enableModelSelection.value) return
+  if (enabledModelSet.value.has(model)) {
+    emitModels(props.modelValue, enabledModelList.value.filter(m => m !== model))
+    return
+  }
+  emitModels(props.modelValue, [...enabledModelList.value, model])
+}
+
+const enableAllCandidateModels = () => {
+  emitModels(props.modelValue, props.modelValue)
+}
+
+const disableAllCandidateModels = () => {
+  emitModels(props.modelValue, [])
 }
 
 const addCustom = () => {
@@ -428,7 +652,7 @@ const addCustom = () => {
     appStore.showInfo(t('admin.accounts.modelExists'))
     return
   }
-  emit('update:modelValue', [...props.modelValue, model])
+  addCandidateModels([model], true)
   customModel.value = ''
 }
 
@@ -437,15 +661,13 @@ const handleEnter = () => {
 }
 
 const fillRelated = () => {
-  const newModels = [...props.modelValue]
+  const newModels: string[] = []
   for (const platform of normalizedPlatforms.value) {
     for (const model of getModelsByPlatform(platform)) {
-      if (!newModels.includes(model)) {
-        newModels.push(model)
-      }
+      newModels.push(model)
     }
   }
-  emit('update:modelValue', newModels)
+  addCandidateModels(newModels, true)
 }
 
 const updateModelMappings = (mappings: ModelMappingEntry[]) => {
@@ -561,7 +783,7 @@ const syncUpstreamModels = async () => {
       }
     }
 
-    emit('update:modelValue', newModels)
+    emitModels(newModels, enabledModelList.value)
     if (addedCount > 0) {
       appStore.showSuccess(t('admin.accounts.syncUpstreamModelsSuccess', { count: addedCount, total: upstreamModels.length }))
     } else {
@@ -576,7 +798,7 @@ const syncUpstreamModels = async () => {
 }
 
 const clearAll = () => {
-  emit('update:modelValue', [])
+  emitModels([], [])
 }
 
 const parseModelTestEvent = (

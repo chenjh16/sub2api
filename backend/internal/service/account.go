@@ -71,6 +71,7 @@ type Account struct {
 	modelMappingCacheRawPtr         uintptr
 	modelMappingCacheRawLen         int
 	modelMappingCacheRawSig         uint64
+	modelMappingCacheSelection      bool
 
 	// header_overrides 热路径缓存（非持久化字段，同 model_mapping 缓存先例）
 	headerOverrideCache               map[string]string
@@ -618,13 +619,15 @@ func (a *Account) GetModelMapping() map[string]string {
 	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
 	rawPtr := mapPtr(rawMapping)
 	rawLen := len(rawMapping)
+	selectionEnabled := a.IsModelSelectionEnabled()
 	rawSig := uint64(0)
 	rawSigReady := false
 
 	if a.modelMappingCacheReady &&
 		a.modelMappingCacheCredentialsPtr == credentialsPtr &&
 		a.modelMappingCacheRawPtr == rawPtr &&
-		a.modelMappingCacheRawLen == rawLen {
+		a.modelMappingCacheRawLen == rawLen &&
+		a.modelMappingCacheSelection == selectionEnabled {
 		rawSig = modelMappingSignature(rawMapping)
 		rawSigReady = true
 		if a.modelMappingCacheRawSig == rawSig {
@@ -632,7 +635,7 @@ func (a *Account) GetModelMapping() map[string]string {
 		}
 	}
 
-	mapping := a.resolveModelMapping(rawMapping)
+	mapping := a.resolveModelMapping(rawMapping, selectionEnabled)
 	if !rawSigReady {
 		rawSig = modelMappingSignature(rawMapping)
 	}
@@ -643,10 +646,32 @@ func (a *Account) GetModelMapping() map[string]string {
 	a.modelMappingCacheRawPtr = rawPtr
 	a.modelMappingCacheRawLen = rawLen
 	a.modelMappingCacheRawSig = rawSig
+	a.modelMappingCacheSelection = selectionEnabled
 	return mapping
 }
 
-func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]string {
+func (a *Account) IsModelSelectionEnabled() bool {
+	if a == nil || a.Credentials == nil {
+		return false
+	}
+	switch value := a.Credentials["model_selection_enabled"].(type) {
+	case bool:
+		return value
+	case string:
+		normalized := strings.TrimSpace(strings.ToLower(value))
+		return normalized == "true" || normalized == "1" || normalized == "yes"
+	case int:
+		return value != 0
+	case int64:
+		return value != 0
+	case float64:
+		return value != 0
+	default:
+		return false
+	}
+}
+
+func (a *Account) resolveModelMapping(rawMapping map[string]any, selectionEnabled bool) map[string]string {
 	if a.Credentials == nil {
 		// Antigravity 平台使用默认映射
 		if a.Platform == domain.PlatformAntigravity {
@@ -659,6 +684,9 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 		return nil
 	}
 	if len(rawMapping) == 0 {
+		if selectionEnabled {
+			return nil
+		}
 		// Antigravity 平台使用默认映射
 		if a.Platform == domain.PlatformAntigravity {
 			return domain.DefaultAntigravityModelMapping
@@ -854,6 +882,9 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 func (a *Account) IsModelSupported(requestedModel string) bool {
 	mapping := a.GetModelMapping()
 	if len(mapping) == 0 {
+		if a.IsModelSelectionEnabled() {
+			return false // 显式选择模式下为空 = 不允许任何模型
+		}
 		if a.IsOpenAIOAuth() && !a.IsOpenAIPassthroughEnabled() {
 			return isOpenAIOAuthServableModel(requestedModel)
 		}
