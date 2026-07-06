@@ -2823,6 +2823,10 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
+			if account.IsModelSelectionEnabled() {
+				response.Success(c, []openai.Model{})
+				return
+			}
 			response.Success(c, openai.DefaultModels)
 			return
 		}
@@ -2857,6 +2861,10 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		// Assist channel. Do not advertise newer 3.x or image models that the
 		// channel cannot serve.
 		if account.IsOAuth() {
+			if account.IsModelSelectionEnabled() {
+				response.Success(c, []geminicli.Model{})
+				return
+			}
 			if account.IsGeminiGoogleOne() {
 				response.Success(c, geminicli.GoogleOneModels)
 				return
@@ -2868,6 +2876,10 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		// For API Key accounts: return models based on model_mapping
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
+			if account.IsModelSelectionEnabled() {
+				response.Success(c, []geminicli.Model{})
+				return
+			}
 			response.Success(c, geminicli.DefaultModels)
 			return
 		}
@@ -2913,6 +2925,10 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		case map[string]string:
 			hasExplicitMapping = len(rawMapping) > 0
 		}
+		if account.IsModelSelectionEnabled() && !hasExplicitMapping {
+			response.Success(c, []xai.Model{})
+			return
+		}
 		if !hasExplicitMapping {
 			response.Success(c, defaultModels)
 			return
@@ -2920,6 +2936,10 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
+			if account.IsModelSelectionEnabled() {
+				response.Success(c, []xai.Model{})
+				return
+			}
 			response.Success(c, defaultModels)
 			return
 		}
@@ -2955,6 +2975,10 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	// Handle Claude/Anthropic accounts
 	// For OAuth and Setup-Token accounts: return default models
 	if account.IsOAuth() {
+		if account.IsModelSelectionEnabled() {
+			response.Success(c, []claude.Model{})
+			return
+		}
 		response.Success(c, claude.DefaultModels)
 		return
 	}
@@ -2962,6 +2986,10 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	// For API Key accounts: return models based on model_mapping
 	mapping := account.GetModelMapping()
 	if len(mapping) == 0 {
+		if account.IsModelSelectionEnabled() {
+			response.Success(c, []claude.Model{})
+			return
+		}
 		// No mapping configured, return default models
 		response.Success(c, claude.DefaultModels)
 		return
