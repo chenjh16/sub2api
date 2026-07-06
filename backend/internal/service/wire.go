@@ -608,6 +608,18 @@ func ProvideScheduledTestRunnerService(
 	return svc
 }
 
+// ProvideAccountModelAutoRefreshService creates and starts AccountModelAutoRefreshService.
+func ProvideAccountModelAutoRefreshService(
+	accountRepo AccountRepository,
+	accountTestSvc *AccountTestService,
+	settingSvc *SettingService,
+	cfg *config.Config,
+) *AccountModelAutoRefreshService {
+	svc := NewAccountModelAutoRefreshService(accountRepo, accountTestSvc, settingSvc, cfg)
+	svc.Start()
+	return svc
+}
+
 // ProvideOpsScheduledReportService creates and starts OpsScheduledReportService.
 func ProvideOpsScheduledReportService(
 	opsService *OpsService,
@@ -895,6 +907,7 @@ var ProviderSet = wire.NewSet(
 	ProvideIdempotencyCleanupService,
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
+	ProvideAccountModelAutoRefreshService,
 	NewGroupCapacityService,
 	NewChannelService,
 	wire.Bind(new(ChannelCacheInvalidator), new(*ChannelService)),

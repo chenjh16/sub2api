@@ -33,12 +33,75 @@
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
               {{ t('admin.scheduledTests.model') }}
             </label>
-            <Select
-              v-model="newPlan.model_id"
-              :options="modelOptions"
-              :placeholder="t('admin.scheduledTests.model')"
-              :searchable="modelOptions.length > 5"
-            />
+            <div class="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-600 dark:bg-dark-800">
+              <div class="flex items-center gap-2 border-b border-gray-100 px-3 py-2 dark:border-dark-700">
+                <Icon name="search" size="sm" class="shrink-0 text-gray-400" :stroke-width="2" />
+                <input
+                  v-model="modelSearch"
+                  type="text"
+                  data-testid="scheduled-test-model-search"
+                  class="min-w-0 flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-dark-400"
+                  :placeholder="t('admin.scheduledTests.searchModels')"
+                />
+              </div>
+              <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-3 py-2 dark:border-dark-700">
+                <span class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.scheduledTests.selectedModels', { count: newPlan.model_ids.length }) }}
+                </span>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    data-testid="scheduled-test-select-filtered-models"
+                    class="text-xs font-medium text-primary-600 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-primary-400 dark:hover:text-primary-300"
+                    :disabled="filteredModelOptions.length === 0"
+                    @click="selectFilteredModels"
+                  >
+                    {{ t('admin.scheduledTests.selectFilteredModels') }}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="scheduled-test-clear-selected-models"
+                    class="text-xs font-medium text-gray-500 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-400 dark:hover:text-gray-200"
+                    :disabled="newPlan.model_ids.length === 0"
+                    @click="clearSelectedModels"
+                  >
+                    {{ t('admin.scheduledTests.clearSelectedModels') }}
+                  </button>
+                </div>
+              </div>
+              <div class="max-h-52 overflow-y-auto py-1">
+                <button
+                  v-for="option in filteredModelOptions"
+                  :key="String(option.value)"
+                  type="button"
+                  data-testid="scheduled-test-model-option"
+                  class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-gray-50 dark:hover:bg-dark-700"
+                  @click="toggleSelectedModel(String(option.value))"
+                >
+                  <span
+                    :class="[
+                      'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                      isModelSelected(String(option.value))
+                        ? 'border-primary-500 bg-primary-500 text-white'
+                        : 'border-gray-300 bg-white dark:border-dark-500 dark:bg-dark-800'
+                    ]"
+                  >
+                    <Icon
+                      v-if="isModelSelected(String(option.value))"
+                      name="check"
+                      size="xs"
+                      :stroke-width="3"
+                    />
+                  </span>
+                  <span class="min-w-0 flex-1 truncate text-gray-800 dark:text-gray-100">
+                    {{ option.label }}
+                  </span>
+                </button>
+                <div v-if="filteredModelOptions.length === 0" class="px-3 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                  {{ t('admin.scheduledTests.noMatchingModels') }}
+                </div>
+              </div>
+            </div>
           </div>
           <div>
             <label class="mb-1 flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400">
@@ -117,7 +180,8 @@
           </button>
           <button
             @click="handleCreate"
-            :disabled="!newPlan.model_id || !newPlan.cron_expression || creating"
+            data-testid="scheduled-test-save-new-plan"
+            :disabled="newPlan.model_ids.length === 0 || !newPlan.cron_expression || creating"
             class="flex items-center gap-1.5 rounded-lg bg-primary-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Icon v-if="creating" name="refresh" size="sm" class="animate-spin" :stroke-width="2" />
@@ -247,7 +311,8 @@
                   v-model="editForm.model_id"
                   :options="modelOptions"
                   :placeholder="t('admin.scheduledTests.model')"
-                  :searchable="modelOptions.length > 5"
+                  :searchable="true"
+                  :search-placeholder="t('admin.scheduledTests.searchModels')"
                 />
               </div>
               <div>
@@ -463,7 +528,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { computed, ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -503,6 +568,7 @@ const showDeleteConfirm = ref(false)
 const deletingPlan = ref<ScheduledTestPlan | null>(null)
 const editingPlanId = ref<number | null>(null)
 const updating = ref(false)
+const modelSearch = ref('')
 const editForm = reactive({
   model_id: '' as string,
   cron_expression: '' as string,
@@ -512,19 +578,54 @@ const editForm = reactive({
 })
 
 const newPlan = reactive({
-  model_id: '' as string,
+  model_ids: [] as string[],
   cron_expression: '' as string,
   max_results: '100' as string,
   enabled: true,
   auto_recover: false
 })
 
+const filteredModelOptions = computed(() => {
+  const query = modelSearch.value.trim().toLowerCase()
+  if (!query) return props.modelOptions
+  return props.modelOptions.filter((option) => {
+    const value = String(option.value ?? '').toLowerCase()
+    const label = String(option.label ?? '').toLowerCase()
+    return value.includes(query) || label.includes(query)
+  })
+})
+
+const isModelSelected = (modelId: string) => newPlan.model_ids.includes(modelId)
+
+const toggleSelectedModel = (modelId: string) => {
+  const index = newPlan.model_ids.indexOf(modelId)
+  if (index >= 0) {
+    newPlan.model_ids.splice(index, 1)
+    return
+  }
+  newPlan.model_ids.push(modelId)
+}
+
+const selectFilteredModels = () => {
+  const selected = new Set(newPlan.model_ids)
+  for (const option of filteredModelOptions.value) {
+    const value = String(option.value ?? '').trim()
+    if (value) selected.add(value)
+  }
+  newPlan.model_ids = Array.from(selected)
+}
+
+const clearSelectedModels = () => {
+  newPlan.model_ids = []
+}
+
 const resetNewPlan = () => {
-  newPlan.model_id = ''
+  newPlan.model_ids = []
   newPlan.cron_expression = ''
   newPlan.max_results = '100'
   newPlan.enabled = true
   newPlan.auto_recover = false
+  modelSearch.value = ''
 }
 
 // Load plans when dialog opens
@@ -557,19 +658,32 @@ const loadPlans = async () => {
 }
 
 const handleCreate = async () => {
-  if (!props.accountId || !newPlan.model_id || !newPlan.cron_expression) return
+  if (!props.accountId || newPlan.model_ids.length === 0 || !newPlan.cron_expression) return
   creating.value = true
   try {
     const maxResults = Number(newPlan.max_results) || 100
-    await adminAPI.scheduledTests.create({
-      account_id: props.accountId,
-      model_id: newPlan.model_id,
-      cron_expression: newPlan.cron_expression,
-      enabled: newPlan.enabled,
-      max_results: maxResults,
-      auto_recover: newPlan.auto_recover
-    })
-    appStore.showSuccess(t('admin.scheduledTests.createSuccess'))
+    const modelIds = [...new Set(newPlan.model_ids.map((model) => model.trim()).filter(Boolean))]
+    const results = await Promise.allSettled(
+      modelIds.map((modelId) =>
+        adminAPI.scheduledTests.create({
+          account_id: props.accountId!,
+          model_id: modelId,
+          cron_expression: newPlan.cron_expression,
+          enabled: newPlan.enabled,
+          max_results: maxResults,
+          auto_recover: newPlan.auto_recover
+        })
+      )
+    )
+    const successCount = results.filter((result) => result.status === 'fulfilled').length
+    const failedCount = results.length - successCount
+    if (successCount > 0) {
+      appStore.showSuccess(t('admin.scheduledTests.createSuccessCount', { count: successCount }))
+    }
+    if (failedCount > 0) {
+      appStore.showError(t('admin.scheduledTests.createPartialFailed', { success: successCount, failed: failedCount }))
+    }
+    if (successCount === 0) return
     showAddForm.value = false
     resetNewPlan()
     await loadPlans()

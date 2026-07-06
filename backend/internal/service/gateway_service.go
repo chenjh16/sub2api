@@ -215,8 +215,11 @@ func anthropicStreamEventIsTerminal(eventName, data string) bool {
 }
 
 func cloneStringSlice(src []string) []string {
-	if len(src) == 0 {
+	if src == nil {
 		return nil
+	}
+	if len(src) == 0 {
+		return []string{}
 	}
 	dst := make([]string, len(src))
 	copy(dst, src)
@@ -1408,6 +1411,9 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		}
 
 		mapping := acc.GetModelMapping()
+		if acc.IsModelSelectionEnabled() {
+			hasAnyMapping = true
+		}
 		if len(mapping) > 0 {
 			hasAnyMapping = true
 			for model := range mapping {
