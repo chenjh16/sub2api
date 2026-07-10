@@ -19,7 +19,10 @@ func TestIsOpenAIImageModelRecognizesCommonCompatibleNames(t *testing.T) {
 		"models/gpt-image-2",
 		"dall-e-3",
 		"flux-kontext-pro",
+		"black-forest-labs/flux-kontext-pro",
+		"black-forest-labs/FLUX.1-schnell",
 		"imagen-4",
+		"provider/grok-imagine-image-quality",
 		"stable-diffusion-xl",
 		"provider/imagegen-pro",
 		"sdxl-turbo",
@@ -33,6 +36,7 @@ func TestIsOpenAIImageModelRecognizesCommonCompatibleNames(t *testing.T) {
 	falseCases := []string{
 		"",
 		"gpt-5.5",
+		"provider/grok-imagine-video-1.5",
 		"gemini-3.5-flash-thinking",
 		"my-image-wrapper-test",
 		"text-to-image-analysis",
