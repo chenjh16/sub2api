@@ -146,10 +146,6 @@ type SystemSettings struct {
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 
-	// Account model tools
-	ModelMappingAutoRules     []ModelMappingAutoRule
-	ModelBatchTestConcurrency int
-
 	DefaultConcurrency           int
 	DefaultBalance               float64
 	RiskControlEnabled           bool
@@ -599,16 +595,6 @@ type GatewayFailoverRuleMatch struct {
 	TransportConditionGroup *GatewayFailoverValueConditionGroup  `json:"transport_condition_group,omitempty"`
 	TransportPersistent     *bool                                `json:"transport_persistent,omitempty"`
 	Consecutive             *GatewayFailoverConsecutiveCondition `json:"consecutive,omitempty"`
-
-	// Deprecated flat conditions are retained only while the migration commit is
-	// replayed; persisted settings are normalized into the condition-group fields.
-	JSONLogic           string                           `json:"json_logic,omitempty"`
-	JSONConditions      []GatewayFailoverJSONCondition   `json:"json_conditions,omitempty"`
-	HeaderLogic         string                           `json:"header_logic,omitempty"`
-	HeaderConditions    []GatewayFailoverHeaderCondition `json:"header_conditions,omitempty"`
-	MessageConditions   []GatewayFailoverValueCondition  `json:"message_conditions,omitempty"`
-	BodyConditions      []GatewayFailoverValueCondition  `json:"body_conditions,omitempty"`
-	TransportConditions []GatewayFailoverValueCondition  `json:"transport_conditions,omitempty"`
 }
 
 // GatewayFailoverRuleAction 单条故障转移规则命中后的动作。
@@ -639,28 +625,6 @@ type GatewayFailoverPolicySettings struct {
 	MatchMode string `json:"match_mode,omitempty"`
 	// Rules 管理员可编辑规则列表。为空时使用系统默认规则。
 	Rules []GatewayFailoverRule `json:"rules,omitempty"`
-
-	// Deprecated fixed-policy fields are read only for migration fallback.
-	Structured400Enabled         bool `json:"structured_400_enabled,omitempty"`
-	Structured400CooldownMinutes int  `json:"structured_400_cooldown_minutes,omitempty"`
-	FailureCooldownJitterPercent int  `json:"failure_cooldown_jitter_percent,omitempty"`
-	HTTP5xxCooldownEnabled       bool `json:"http_5xx_cooldown_enabled,omitempty"`
-	HTTP5xxThreshold             int  `json:"http_5xx_threshold,omitempty"`
-	HTTP5xxWindowSeconds         int  `json:"http_5xx_window_seconds,omitempty"`
-	HTTP5xxCooldownSeconds       int  `json:"http_5xx_cooldown_seconds,omitempty"`
-	TransportCooldownEnabled     bool `json:"transport_cooldown_enabled,omitempty"`
-	TransportThreshold           int  `json:"transport_threshold,omitempty"`
-	TransportWindowSeconds       int  `json:"transport_window_seconds,omitempty"`
-	TransportCooldownSeconds     int  `json:"transport_cooldown_seconds,omitempty"`
-}
-
-// GatewayContentBlockerSettings is kept for reading the pre-policy setting
-// during migration. New runtime matching uses GatewayFailoverPolicySettings.
-type GatewayContentBlockerSettings struct {
-	Enabled         bool     `json:"enabled"`
-	Keywords        []string `json:"keywords"`
-	CooldownMinutes int      `json:"cooldown_minutes"`
-	MaxScanBytes    int      `json:"max_scan_bytes"`
 }
 
 // DefaultOverloadCooldownSettings 返回默认的过载冷却配置（启用，10分钟）
@@ -684,15 +648,6 @@ func DefaultGatewayFailoverPolicySettings() *GatewayFailoverPolicySettings {
 	return &GatewayFailoverPolicySettings{
 		MatchMode: "first",
 		Rules:     defaultGatewayFailoverRules(),
-	}
-}
-
-func DefaultGatewayContentBlockerSettings() *GatewayContentBlockerSettings {
-	return &GatewayContentBlockerSettings{
-		Enabled:         false,
-		Keywords:        []string{},
-		CooldownMinutes: 10,
-		MaxScanBytes:    65536,
 	}
 }
 

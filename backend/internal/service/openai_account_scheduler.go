@@ -2116,6 +2116,52 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	decision := OpenAIAccountScheduleDecision{}
 	scheduler := s.getOpenAIAccountScheduler(ctx)
 	if scheduler == nil {
+		if strings.TrimSpace(previousResponseID) != "" && platform == PlatformOpenAI {
+			selection, err := s.selectLegacyBreakStickyAccount(
+				ctx,
+				groupID,
+				sessionHash,
+				requestedModel,
+				excludedIDs,
+				requiredTransport,
+				requiredCapability,
+				requiredImageCapability,
+				requireCompact,
+				openAIAccountScheduleLayerPreviousResponse,
+			)
+			if err != nil {
+				return nil, decision, err
+			}
+			if selection != nil && selection.Account != nil {
+				decision.Layer = openAIAccountScheduleLayerLoadBalance
+				decision.SelectedAccountID = selection.Account.ID
+				decision.SelectedAccountType = selection.Account.Type
+				return selection, decision, nil
+			}
+		}
+
+		selection, err := s.selectLegacyBreakStickyAccount(
+			ctx,
+			groupID,
+			sessionHash,
+			requestedModel,
+			excludedIDs,
+			requiredTransport,
+			requiredCapability,
+			requiredImageCapability,
+			requireCompact,
+			openAIAccountScheduleLayerSessionSticky,
+		)
+		if err != nil {
+			return nil, decision, err
+		}
+		if selection != nil && selection.Account != nil {
+			decision.Layer = openAIAccountScheduleLayerLoadBalance
+			decision.SelectedAccountID = selection.Account.ID
+			decision.SelectedAccountType = selection.Account.Type
+			return selection, decision, nil
+		}
+
 		decision.Layer = openAIAccountScheduleLayerLoadBalance
 		if requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE {
 			effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
@@ -2226,6 +2272,79 @@ func cloneExcludedAccountIDs(excludedIDs map[int64]struct{}) map[int64]struct{} 
 		cloned[id] = struct{}{}
 	}
 	return cloned
+}
+
+// selectLegacyBreakStickyAccount preserves account-level sticky-breaking when
+// the optional advanced scheduler is disabled. Non-breaking accounts are
+// excluded, then the legacy scheduler keeps its normal priority/LRU/load rules.
+func (s *OpenAIGatewayService) selectLegacyBreakStickyAccount(
+	ctx context.Context,
+	groupID *int64,
+	sessionHash string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requiredTransport OpenAIUpstreamTransport,
+	requiredCapability OpenAIEndpointCapability,
+	requiredImageCapability OpenAIImagesCapability,
+	requireCompact bool,
+	stickyKind string,
+) (*AccountSelectionResult, error) {
+	accounts, err := s.listSchedulableAccounts(ctx, groupID, PlatformOpenAI)
+	if err != nil {
+		return nil, err
+	}
+
+	effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
+	if effectiveExcludedIDs == nil {
+		effectiveExcludedIDs = make(map[int64]struct{}, len(accounts))
+	}
+	hasCandidate := false
+	for i := range accounts {
+		account := &accounts[i]
+		if !account.BreaksOpenAISticky(stickyKind) {
+			effectiveExcludedIDs[account.ID] = struct{}{}
+			continue
+		}
+		if _, excluded := effectiveExcludedIDs[account.ID]; !excluded {
+			hasCandidate = true
+		}
+	}
+	if !hasCandidate {
+		return nil, nil
+	}
+
+	for {
+		selection, selectErr := s.selectAccountWithLoadAwareness(
+			ctx,
+			groupID,
+			PlatformOpenAI,
+			sessionHash,
+			requestedModel,
+			effectiveExcludedIDs,
+			requireCompact,
+			requiredCapability,
+		)
+		if selectErr != nil {
+			if isNoAvailableOpenAIAccountSelectionError(selectErr) {
+				return nil, nil
+			}
+			return nil, selectErr
+		}
+		if selection == nil || selection.Account == nil {
+			return nil, nil
+		}
+
+		account := selection.Account
+		if account.BreaksOpenAISticky(stickyKind) &&
+			s.isOpenAIAccountTransportCompatible(account, requiredTransport) &&
+			accountSupportsOpenAICapabilities(account, requiredCapability, requiredImageCapability) {
+			return selection, nil
+		}
+		if selection.ReleaseFunc != nil {
+			selection.ReleaseFunc()
+		}
+		effectiveExcludedIDs[account.ID] = struct{}{}
+	}
 }
 
 func (s *OpenAIGatewayService) isOpenAIAccountTransportCompatible(account *Account, requiredTransport OpenAIUpstreamTransport) bool {
