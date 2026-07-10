@@ -173,30 +173,67 @@ func (s *AccountModelAutoRefreshService) refreshOneAccount(ctx context.Context, 
 	if account == nil {
 		return
 	}
-	credentials := shallowCopyMap(account.Credentials)
-	credentials[accountModelAutoRefreshLastRunAtKey] = now.Format(time.RFC3339)
 
 	models, err := s.accountTestSvc.FetchUpstreamSupportedModels(ctx, account)
 	if err != nil {
-		s.persistAutoRefreshFailure(ctx, account, credentials, fmt.Sprintf("sync upstream models: %v", err), now)
+		s.persistAutoRefreshFailure(ctx, account.ID, fmt.Sprintf("sync upstream models: %v", err), now)
 		return
 	}
 	models = normalizeAccountModelAutoRefreshModels(models)
 	if len(models) == 0 {
-		s.persistAutoRefreshFailure(ctx, account, credentials, "upstream returned no supported models", now)
+		s.persistAutoRefreshFailure(ctx, account.ID, "upstream returned no supported models", now)
 		return
 	}
 
+	var passed, failed []string
 	if cfg.TestFilter {
 		concurrency := s.modelTestConcurrency(ctx)
-		passed, failed := s.testFetchedModels(ctx, account.ID, models, concurrency)
+		passed, failed = s.testFetchedModels(ctx, account.ID, models, concurrency)
 		if len(passed) == 0 {
-			credentials[accountModelAutoRefreshLastSyncedCountKey] = len(models)
-			credentials[accountModelAutoRefreshLastEnabledCountKey] = 0
-			credentials[accountModelAutoRefreshLastFailedCountKey] = len(failed)
-			s.persistAutoRefreshFailure(ctx, account, credentials, "all fetched models failed automatic tests; existing model list was preserved", now)
+			s.persistAutoRefreshFailure(
+				ctx,
+				account.ID,
+				"all fetched models failed automatic tests; existing model list was preserved",
+				now,
+				len(models),
+				0,
+				len(failed),
+			)
 			return
 		}
+	}
+
+	if err := s.persistAutoRefreshSuccess(ctx, account.ID, models, passed, failed, cfg.TestFilter, now); err != nil {
+		logger.LegacyPrintf("service.account_model_auto_refresh", "[AccountModelAutoRefresh] account=%d persist success error: %v", account.ID, err)
+		return
+	}
+	logger.LegacyPrintf("service.account_model_auto_refresh", "[AccountModelAutoRefresh] account=%d refreshed models=%d test_filter=%v", account.ID, len(models), cfg.TestFilter)
+}
+
+func (s *AccountModelAutoRefreshService) loadLatestAutoRefreshAccount(ctx context.Context, accountID int64) (*Account, map[string]any, bool, error) {
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if account == nil || !accountModelAutoRefreshConfigFromAccount(account).Enabled {
+		return account, nil, false, nil
+	}
+	return account, shallowCopyMap(account.Credentials), true, nil
+}
+
+func (s *AccountModelAutoRefreshService) persistAutoRefreshSuccess(
+	ctx context.Context,
+	accountID int64,
+	models, passed, failed []string,
+	testFilter bool,
+	now time.Time,
+) error {
+	account, credentials, enabled, err := s.loadLatestAutoRefreshAccount(ctx, accountID)
+	if err != nil || !enabled {
+		return err
+	}
+
+	if testFilter {
 		applyAccountModelAutoRefreshFilteredModels(credentials, models, passed)
 		credentials[accountModelAutoRefreshLastEnabledCountKey] = len(passed)
 		credentials[accountModelAutoRefreshLastFailedCountKey] = len(failed)
@@ -205,28 +242,34 @@ func (s *AccountModelAutoRefreshService) refreshOneAccount(ctx context.Context, 
 		credentials[accountModelAutoRefreshLastEnabledCountKey] = len(parseAccountModelMappingCredential(credentials))
 		credentials[accountModelAutoRefreshLastFailedCountKey] = 0
 	}
-
+	credentials[accountModelAutoRefreshLastRunAtKey] = now.Format(time.RFC3339)
 	credentials[accountModelAutoRefreshLastSuccessAtKey] = now.Format(time.RFC3339)
 	credentials[accountModelAutoRefreshLastSyncedCountKey] = len(models)
 	delete(credentials, accountModelAutoRefreshLastErrorKey)
-	if err := persistAccountCredentials(ctx, s.accountRepo, account, credentials); err != nil {
-		logger.LegacyPrintf("service.account_model_auto_refresh", "[AccountModelAutoRefresh] account=%d persist success error: %v", account.ID, err)
-		return
-	}
-	logger.LegacyPrintf("service.account_model_auto_refresh", "[AccountModelAutoRefresh] account=%d refreshed models=%d test_filter=%v", account.ID, len(models), cfg.TestFilter)
+	return persistAccountCredentials(ctx, s.accountRepo, account, credentials)
 }
 
-func (s *AccountModelAutoRefreshService) persistAutoRefreshFailure(ctx context.Context, account *Account, credentials map[string]any, message string, now time.Time) {
-	if account == nil {
+func (s *AccountModelAutoRefreshService) persistAutoRefreshFailure(ctx context.Context, accountID int64, message string, now time.Time, counts ...int) {
+	account, credentials, enabled, err := s.loadLatestAutoRefreshAccount(ctx, accountID)
+	if err != nil {
+		logger.LegacyPrintf("service.account_model_auto_refresh", "[AccountModelAutoRefresh] account=%d reload before failure persist error: %v", accountID, err)
 		return
 	}
+	if !enabled {
+		return
+	}
+	credentials[accountModelAutoRefreshLastRunAtKey] = now.Format(time.RFC3339)
 	credentials[accountModelAutoRefreshLastErrorKey] = strings.TrimSpace(message)
-	delete(credentials, accountModelAutoRefreshLastSuccessAtKey)
+	if len(counts) >= 3 {
+		credentials[accountModelAutoRefreshLastSyncedCountKey] = counts[0]
+		credentials[accountModelAutoRefreshLastEnabledCountKey] = counts[1]
+		credentials[accountModelAutoRefreshLastFailedCountKey] = counts[2]
+	}
 	if err := persistAccountCredentials(ctx, s.accountRepo, account, credentials); err != nil {
-		logger.LegacyPrintf("service.account_model_auto_refresh", "[AccountModelAutoRefresh] account=%d persist failure error: %v", account.ID, err)
+		logger.LegacyPrintf("service.account_model_auto_refresh", "[AccountModelAutoRefresh] account=%d persist failure error: %v", accountID, err)
 		return
 	}
-	logger.LegacyPrintf("service.account_model_auto_refresh", "[AccountModelAutoRefresh] account=%d failed at=%s err=%s", account.ID, now.Format(time.RFC3339), message)
+	logger.LegacyPrintf("service.account_model_auto_refresh", "[AccountModelAutoRefresh] account=%d failed at=%s err=%s", accountID, now.Format(time.RFC3339), message)
 }
 
 func (s *AccountModelAutoRefreshService) modelTestConcurrency(ctx context.Context) int {
