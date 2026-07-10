@@ -233,17 +233,26 @@ export function isImageGenerationModel(model: string, platform?: string): boolea
   const normalized = normalizeName(model).toLowerCase().replace(/^models\//, '')
   if (!normalized) return false
 
-  if (/^gemini-(?:3\.1-flash|3-pro|2\.5-flash)-image(?:-|$)/.test(normalized)) {
-    return true
-  }
+  const leaf = normalized.slice(normalized.lastIndexOf('/') + 1)
+  const candidates = leaf === normalized ? [normalized] : [normalized, leaf]
 
-  if (/^(gpt-image-|dall-e-|imagen-|flux-|midjourney-|mj-|seedream-|jimeng-|kolors-)/.test(normalized)) {
-    return true
-  }
+  return candidates.some(candidate => {
+    if (/^gemini-(?:3\.1-flash|3-pro|2\.5-flash)-image(?:-|$)/.test(candidate)) {
+      return true
+    }
 
-  if (/(^|[-_/])(imagegen|imggen|stable-diffusion|sdxl)([-_/]|$)/.test(normalized)) {
-    return true
-  }
+    if (/^(gpt-image-|dall-e-|imagen-|flux[-._]|midjourney-|mj-|seedream-|jimeng-|kolors-)/.test(candidate)) {
+      return true
+    }
 
-  return platform === 'openai' && /^gpt-image-/.test(normalized)
+    if (/^grok-imagine(?:$|-edit$|-image(?:-|$))/.test(candidate)) {
+      return true
+    }
+
+    if (/(^|[-_/])(imagegen|imggen|stable-diffusion|sdxl)([-_/]|$)/.test(candidate)) {
+      return true
+    }
+
+    return platform === 'openai' && /^gpt-image-/.test(candidate)
+  })
 }
