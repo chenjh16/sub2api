@@ -97,22 +97,33 @@ func isOpenAIImageModel(model string) bool {
 	if normalized == "" {
 		return false
 	}
-	for _, prefix := range []string{
-		"gpt-image-",
-		"dall-e-",
-		"imagen-",
-		"flux-",
-		"midjourney-",
-		"mj-",
-		"seedream-",
-		"jimeng-",
-		"kolors-",
-	} {
-		if strings.HasPrefix(normalized, prefix) {
+	candidates := []string{normalized}
+	if slash := strings.LastIndex(normalized, "/"); slash >= 0 && slash < len(normalized)-1 {
+		candidates = append(candidates, normalized[slash+1:])
+	}
+	for _, candidate := range candidates {
+		for _, prefix := range []string{
+			"gpt-image-",
+			"dall-e-",
+			"imagen-",
+			"flux-",
+			"flux.",
+			"flux_",
+			"midjourney-",
+			"mj-",
+			"seedream-",
+			"jimeng-",
+			"kolors-",
+		} {
+			if strings.HasPrefix(candidate, prefix) {
+				return true
+			}
+		}
+		if isGrokImageGenerationModel(candidate) || openAIImageModelPattern.MatchString(candidate) {
 			return true
 		}
 	}
-	return openAIImageModelPattern.MatchString(normalized)
+	return false
 }
 
 // AccountTestService handles account testing operations

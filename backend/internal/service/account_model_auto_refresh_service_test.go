@@ -1,11 +1,34 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+type accountModelAutoRefreshRepoStub struct {
+	AccountRepository
+	account *Account
+	updated *Account
+}
+
+func (s *accountModelAutoRefreshRepoStub) GetByID(context.Context, int64) (*Account, error) {
+	if s.account == nil {
+		return nil, nil
+	}
+	account := *s.account
+	account.Credentials = shallowCopyMap(s.account.Credentials)
+	return &account, nil
+}
+
+func (s *accountModelAutoRefreshRepoStub) Update(_ context.Context, account *Account) error {
+	updated := *account
+	updated.Credentials = shallowCopyMap(account.Credentials)
+	s.updated = &updated
+	return nil
+}
 
 func TestAccountModelAutoRefreshDue(t *testing.T) {
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
@@ -84,4 +107,76 @@ func TestAccountModelAutoRefreshConfigFromAccountNormalizesInterval(t *testing.T
 
 	require.True(t, cfg.Enabled)
 	require.Equal(t, accountModelAutoRefreshMinIntervalMinutes, cfg.IntervalMinutes)
+}
+
+func TestPersistAutoRefreshSuccessMergesIntoLatestCredentials(t *testing.T) {
+	repo := &accountModelAutoRefreshRepoStub{account: &Account{
+		ID: 7,
+		Credentials: map[string]any{
+			accountModelAutoRefreshEnabledKey: true,
+			"api_key":                         "latest-token",
+			"model_candidates":                []string{"manual-model"},
+		},
+	}}
+	svc := &AccountModelAutoRefreshService{accountRepo: repo}
+	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+
+	err := svc.persistAutoRefreshSuccess(
+		context.Background(),
+		7,
+		[]string{"new-model"},
+		nil,
+		nil,
+		false,
+		now,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, repo.updated)
+	require.Equal(t, "latest-token", repo.updated.Credentials["api_key"])
+	require.Equal(t, []string{"manual-model", "new-model"}, repo.updated.Credentials["model_candidates"])
+	require.Equal(t, now.Format(time.RFC3339), repo.updated.Credentials[accountModelAutoRefreshLastSuccessAtKey])
+}
+
+func TestPersistAutoRefreshFailurePreservesLatestSuccessAndAdminFields(t *testing.T) {
+	lastSuccess := "2026-07-09T08:00:00Z"
+	repo := &accountModelAutoRefreshRepoStub{account: &Account{
+		ID: 8,
+		Credentials: map[string]any{
+			accountModelAutoRefreshEnabledKey:       true,
+			accountModelAutoRefreshLastSuccessAtKey: lastSuccess,
+			"api_key":                               "latest-token",
+		},
+	}}
+	svc := &AccountModelAutoRefreshService{accountRepo: repo}
+	now := time.Date(2026, 7, 10, 13, 0, 0, 0, time.UTC)
+
+	svc.persistAutoRefreshFailure(context.Background(), 8, "upstream failed", now, 3, 0, 3)
+
+	require.NotNil(t, repo.updated)
+	require.Equal(t, "latest-token", repo.updated.Credentials["api_key"])
+	require.Equal(t, lastSuccess, repo.updated.Credentials[accountModelAutoRefreshLastSuccessAtKey])
+	require.Equal(t, "upstream failed", repo.updated.Credentials[accountModelAutoRefreshLastErrorKey])
+	require.Equal(t, 3, repo.updated.Credentials[accountModelAutoRefreshLastFailedCountKey])
+}
+
+func TestPersistAutoRefreshSkipsWriteAfterAdminDisablesIt(t *testing.T) {
+	repo := &accountModelAutoRefreshRepoStub{account: &Account{
+		ID:          9,
+		Credentials: map[string]any{"api_key": "latest-token"},
+	}}
+	svc := &AccountModelAutoRefreshService{accountRepo: repo}
+
+	err := svc.persistAutoRefreshSuccess(
+		context.Background(),
+		9,
+		[]string{"new-model"},
+		nil,
+		nil,
+		false,
+		time.Now(),
+	)
+
+	require.NoError(t, err)
+	require.Nil(t, repo.updated)
 }
