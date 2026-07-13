@@ -92,6 +92,12 @@ func (s *OpenAIGatewayService) decideOpenAIUpstreamHTTPFailover(
 	if decision := s.decideOpenAIFailoverRule(ctx, event); decision != nil {
 		return decision
 	}
+	if account != nil && account.Platform == PlatformGrok && s.shouldFailoverGrokUpstreamError(statusCode, upstreamBody) {
+		return &openAIFailoverRuleDecision{
+			Failover:     true,
+			SystemReason: "grok_failure",
+		}
+	}
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return &openAIFailoverRuleDecision{
 			Failover:     true,
