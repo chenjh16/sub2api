@@ -193,38 +193,6 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	// 7. Handle error response with failover
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
-		if account.Platform == PlatformGrok {
-			kind := "http_error"
-			if s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody) {
-				kind = "failover"
-			}
-			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-				ProxyID:            opsUpstreamProxyID(account),
-				ProxyName:          opsUpstreamProxyName(account),
-				Platform:           account.Platform,
-				AccountID:          account.ID,
-				AccountName:        account.Name,
-				UpstreamStatusCode: resp.StatusCode,
-				UpstreamRequestID:  firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id")),
-				Kind:               kind,
-				Message:            upstreamMsg,
-			})
-			s.handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.StatusCode, resp.Header, respBody)
-			if s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody) {
-				retryable, retryDelay, retryDeadline, retryMax := grokSameAccountRetryMetadata(account, resp.StatusCode, respBody)
-				return nil, &UpstreamFailoverError{
-					StatusCode:               resp.StatusCode,
-					ResponseBody:             respBody,
-					ResponseHeaders:          resp.Header.Clone(),
-					RetryableOnSameAccount:   retryable,
-					RequestScopedTransient:   retryable && resp.StatusCode == http.StatusTooManyRequests,
-					SameAccountRetryDelay:    retryDelay,
-					SameAccountRetryDeadline: retryDeadline,
-					SameAccountRetryMax:      retryMax,
-				}
-			}
-			return s.handleChatCompletionsErrorResponse(resp, c, account, billingModel)
-		}
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
