@@ -88,21 +88,25 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	upstreamMsg string,
 	upstreamModel string,
 ) *UpstreamFailoverError {
-	shouldFailover := s.shouldFailoverOpenAIUpstreamResponseWithContext(
-		ctx,
-		account,
-		resp.StatusCode,
-		resp.Header,
-		upstreamMsg,
-		respBody,
-	)
-	if account != nil && account.Platform == PlatformGrok {
-		shouldFailover = s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody)
+	if account == nil || resp == nil {
+		return nil
 	}
-	if account != nil && account.Platform == PlatformGrok {
+	if account.Platform == PlatformGrok {
 		s.handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 	}
-	if !shouldFailover {
+	if isOpenAIContextWindowError(upstreamMsg, respBody) {
+		return nil
+	}
+	event := openAIFailoverRuleEvent{
+		Event:           GatewayFailoverRuleEventHTTPResponse,
+		StatusCode:      resp.StatusCode,
+		Headers:         resp.Header,
+		UpstreamMessage: upstreamMsg,
+		Body:            respBody,
+		Account:         account,
+	}
+	decision := s.decideOpenAIUpstreamHTTPFailover(ctx, account, resp.StatusCode, resp.Header, upstreamMsg, respBody)
+	if decision == nil || !decision.Failover {
 		return nil
 	}
 	upstreamDetail := ""
@@ -118,21 +122,26 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 		AccountID:          account.ID,
 		AccountName:        account.Name,
 		UpstreamStatusCode: resp.StatusCode,
-		UpstreamRequestID:  resp.Header.Get("x-request-id"),
+		UpstreamRequestID:  firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id")),
 		Kind:               "failover",
 		Message:            upstreamMsg,
 		Detail:             upstreamDetail,
 	})
-	shouldDisable := false
-	if account.Platform != PlatformGrok {
-		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
+	retryableOnSameAccount := account.IsPoolMode() &&
+		(account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody))
+	if decision.SystemReason == "" {
+		s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
+		retryableOnSameAccount = false
+	} else if account.Platform != PlatformGrok {
+		shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
+		retryableOnSameAccount = !shouldDisable && retryableOnSameAccount
 	}
 	return newOpenAIUpstreamFailoverError(
 		resp.StatusCode,
 		resp.Header,
 		respBody,
 		upstreamMsg,
-		!shouldDisable && account.IsPoolMode() && (account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody)),
+		retryableOnSameAccount,
 	)
 }
 

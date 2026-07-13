@@ -491,3 +491,63 @@ func TestIsOpenAIAlphaSearchEndpointUnsupported(t *testing.T) {
 	require.False(t, isOpenAIAlphaSearchEndpointUnsupported(oauth, http.StatusNotFound))
 	require.False(t, isOpenAIAlphaSearchEndpointUnsupported(nil, http.StatusNotFound))
 }
+
+func TestForwardAlphaSearchFailoverPolicyReceivesResponseHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"id":"search-session","model":"gpt-5.6-sol","commands":{}}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/alpha/search", bytes.NewReader(body))
+
+	settings := GatewayFailoverPolicySettings{
+		MatchMode: "first",
+		Rules: []GatewayFailoverRule{
+			{
+				ID:       "alpha_search_header",
+				Name:     "Alpha search header",
+				Enabled:  true,
+				Priority: 1,
+				Event:    GatewayFailoverRuleEventHTTPResponse,
+				Match: GatewayFailoverRuleMatch{
+					StatusCodes: []int{http.StatusTeapot},
+					HeaderConditionGroup: &GatewayFailoverHeaderConditionGroup{
+						Logic: GatewayFailoverRuleLogicAll,
+						Conditions: []GatewayFailoverHeaderCondition{
+							{Name: "x-upstream-state", Op: GatewayFailoverRuleOpEquals, Value: "overloaded"},
+						},
+					},
+				},
+				Action: GatewayFailoverRuleAction{
+					Failover:      true,
+					CooldownScope: GatewayFailoverCooldownScopeNone,
+				},
+			},
+		},
+	}
+	service := newOpenAIFailoverPolicyTestService(t, settings)
+	service.cfg = &config.Config{}
+	service.httpUpstream = &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusTeapot,
+		Header: http.Header{
+			"Content-Type":     []string{"application/json"},
+			"X-Upstream-State": []string{"overloaded"},
+		},
+		Body: io.NopCloser(strings.NewReader(`{"error":{"message":"temporarily unavailable"}}`)),
+	}}
+	account := &Account{
+		ID:       9,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "sk-test",
+		},
+	}
+
+	result, err := service.ForwardAlphaSearch(context.Background(), c, account, body)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusTeapot, failoverErr.StatusCode)
+	require.False(t, c.Writer.Written())
+}

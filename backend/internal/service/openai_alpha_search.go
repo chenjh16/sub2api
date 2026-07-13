@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -87,23 +86,8 @@ func (s *OpenAIGatewayService) ForwardAlphaSearch(ctx context.Context, c *gin.Co
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		upstreamMessage := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
-		if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMessage, respBody) ||
-			isOpenAIAlphaSearchEndpointUnsupported(account, resp.StatusCode) {
-			resp.Body = io.NopCloser(bytes.NewReader(respBody))
-			// alpha/search 是独立的工具端点，单次 401 不能证明账号的模型调用
-			// 凭据全局失效。若沿用通用 401 逻辑，PAT 会因没有 refresh_token
-			// 被永久标记为 error；历史导入且缺少 auth_mode 标记的 at- token 也会
-			// 漏过 PAT 类型判断。这里仍允许本次请求换号，但不修改任何账号状态；
-			// 真正的凭据失效由普通 Responses 请求或 whoami 校验判定。
-			shouldDisable := false
-			if shouldApplyOpenAIAlphaSearchAccountErrorSideEffects(resp.StatusCode) {
-				shouldDisable = s.handleFailoverSideEffects(ctx, resp, account, respBody, upstreamModel)
-			}
-			return nil, &UpstreamFailoverError{
-				StatusCode:             resp.StatusCode,
-				ResponseBody:           respBody,
-				RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
-			}
+		if foErr := s.failoverOpenAIAlphaSearchHTTPError(ctx, c, account, resp, respBody, upstreamMessage, upstreamModel); foErr != nil {
+			return nil, foErr
 		}
 	}
 
@@ -167,18 +151,8 @@ func (s *OpenAIGatewayService) forwardAlphaSearchViaResponsesWebSearch(
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		upstreamMessage := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
-		if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMessage, respBody) {
-			resp.Body = io.NopCloser(bytes.NewReader(respBody))
-			// 仍按 alpha/search 工具请求处理：PAT 的工具链路失败不能直接永久置错。
-			shouldDisable := false
-			if shouldApplyOpenAIAlphaSearchAccountErrorSideEffects(resp.StatusCode) {
-				shouldDisable = s.handleFailoverSideEffects(ctx, resp, account, respBody, upstreamModel)
-			}
-			return nil, &UpstreamFailoverError{
-				StatusCode:             resp.StatusCode,
-				ResponseBody:           respBody,
-				RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
-			}
+		if foErr := s.failoverOpenAIAlphaSearchHTTPError(ctx, c, account, resp, respBody, upstreamMessage, upstreamModel); foErr != nil {
+			return nil, foErr
 		}
 	}
 
@@ -531,6 +505,57 @@ func shouldApplyOpenAIAlphaSearchAccountErrorSideEffects(statusCode int) bool {
 	default:
 		return true
 	}
+}
+
+func (s *OpenAIGatewayService) failoverOpenAIAlphaSearchHTTPError(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	resp *http.Response,
+	respBody []byte,
+	upstreamMessage string,
+	upstreamModel string,
+) *UpstreamFailoverError {
+	if resp == nil || account == nil {
+		return nil
+	}
+	if shouldApplyOpenAIAlphaSearchAccountErrorSideEffects(resp.StatusCode) {
+		return s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMessage, upstreamModel)
+	}
+	if !isOpenAIAlphaSearchEndpointUnsupported(account, resp.StatusCode) &&
+		!s.shouldFailoverOpenAIUpstreamResponseWithContext(ctx, account, resp.StatusCode, resp.Header, upstreamMessage, respBody) {
+		return nil
+	}
+
+	// A standalone search 401 does not prove the account's model credentials
+	// are globally invalid. Likewise, an API-key upstream returning 404/405 only
+	// proves that this tool endpoint is unavailable. Fail over without mutating
+	// account state; regular Responses traffic or whoami owns that verdict.
+	upstreamDetail := ""
+	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+		maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
+		if maxBytes <= 0 {
+			maxBytes = 2048
+		}
+		upstreamDetail = truncateString(string(respBody), maxBytes)
+	}
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform:           account.Platform,
+		AccountID:          account.ID,
+		AccountName:        account.Name,
+		UpstreamStatusCode: resp.StatusCode,
+		UpstreamRequestID:  resp.Header.Get("x-request-id"),
+		Kind:               "failover",
+		Message:            upstreamMessage,
+		Detail:             upstreamDetail,
+	})
+	return newOpenAIUpstreamFailoverError(
+		resp.StatusCode,
+		resp.Header,
+		respBody,
+		upstreamMessage,
+		account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+	)
 }
 
 func openAIAlphaSearchResponseFromResponsesSSE(body []byte) ([]byte, error) {

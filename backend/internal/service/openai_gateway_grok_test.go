@@ -2246,6 +2246,61 @@ func TestForwardAsChatCompletionsForGrokComposerBridgesImageInput(t *testing.T) 
 	require.NotNil(t, repo.updates[55][grokQuotaSnapshotExtraKey])
 }
 
+func TestDescribeGrokComposerImageUsesConfigurableFailoverPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	settings := GatewayFailoverPolicySettings{
+		MatchMode: "first",
+		Rules: []GatewayFailoverRule{
+			{
+				ID:       "grok_image_probe_overload",
+				Name:     "Grok image probe overload",
+				Enabled:  true,
+				Priority: 1,
+				Event:    GatewayFailoverRuleEventHTTPResponse,
+				Match: GatewayFailoverRuleMatch{
+					StatusCodes: []int{http.StatusTeapot},
+					JSONConditionGroup: &GatewayFailoverJSONConditionGroup{
+						Logic: GatewayFailoverRuleLogicAll,
+						Conditions: []GatewayFailoverJSONCondition{
+							{Path: "error.code", Op: GatewayFailoverRuleOpEquals, Value: "probe_overloaded"},
+						},
+					},
+				},
+				Action: GatewayFailoverRuleAction{
+					Failover:      true,
+					CooldownScope: GatewayFailoverCooldownScopeNone,
+				},
+			},
+		},
+	}
+	svc := newOpenAIFailoverPolicyTestService(t, settings)
+	svc.httpUpstream = &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusTeapot,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"probe_overloaded","message":"try another account"}}`)),
+	}}
+	account := &Account{
+		ID:          551,
+		Name:        "grok-image-probe",
+		Platform:    PlatformGrok,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"base_url": xai.DefaultCLIBaseURL,
+		},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	_, _, err := svc.describeGrokComposerImage(context.Background(), c, account, "access-token", "data:image/png;base64,QUJD", 0)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusTeapot, failoverErr.StatusCode)
+}
+
 func TestForwardAsAnthropicForGrokUsesXAIResponses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
