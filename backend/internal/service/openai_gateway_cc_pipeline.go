@@ -88,26 +88,40 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	upstreamMsg string,
 	upstreamModel string,
 ) *UpstreamFailoverError {
-	shouldFailover := s.shouldFailoverOpenAIUpstreamResponseWithContext(
-		ctx,
-		account,
-		resp.StatusCode,
-		resp.Header,
-		upstreamMsg,
-		respBody,
-	)
+	if account == nil || resp == nil {
+		return nil
+	}
+	if account.Platform == PlatformGrok {
+		grokCtx := withGrokTeamRateLimitModel(ctx, upstreamModel)
+		failure := classifyGrokUpstreamFailure(resp.StatusCode, respBody, upstreamModel)
+		s.handleGrokAccountUpstreamError(grokCtx, account, resp.StatusCode, resp.Header, respBody)
+		// A 429 or a model-specific free-usage response applies to sibling
+		// accounts in the same Grok team as well as the selected account.
+		if resp.StatusCode == http.StatusTooManyRequests || failure.Class == GrokFailureFreeUsage {
+			now := time.Now()
+			markGrokTeamModelRateLimit(account, upstreamModel, resolveGrokTeamRateLimitUntil(now.Add(grokTeamRateLimitDefaultTTL), now))
+		}
+		if isGrokContentPolicyRejection(resp.StatusCode, respBody) {
+			return nil
+		}
+	}
+	if isOpenAIContextWindowError(upstreamMsg, respBody) {
+		return nil
+	}
+	event := openAIFailoverRuleEvent{
+		Event:           GatewayFailoverRuleEventHTTPResponse,
+		StatusCode:      resp.StatusCode,
+		Headers:         resp.Header,
+		UpstreamMessage: upstreamMsg,
+		Body:            respBody,
+		Account:         account,
+	}
+	decision := s.decideOpenAIUpstreamHTTPFailover(ctx, account, resp.StatusCode, resp.Header, upstreamMsg, respBody)
 	tempUnscheduled := false
-	if c != nil && account != nil && account.Platform != PlatformGrok && !shouldFailover && !IsResponseCommitted(c) && s.rateLimitService != nil {
+	if (decision == nil || !decision.Failover) && account.Platform != PlatformGrok && c != nil && !IsResponseCommitted(c) && s.rateLimitService != nil {
 		tempUnscheduled = s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, upstreamModel) == ErrorPolicyTempUnscheduled
-		shouldFailover = tempUnscheduled
 	}
-	if account != nil && account.Platform == PlatformGrok {
-		shouldFailover = s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody)
-	}
-	if account != nil && account.Platform == PlatformGrok {
-		s.handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-	}
-	if !shouldFailover {
+	if (decision == nil || !decision.Failover) && !tempUnscheduled {
 		return nil
 	}
 	upstreamDetail := ""
@@ -125,24 +139,45 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 		AccountID:          account.ID,
 		AccountName:        account.Name,
 		UpstreamStatusCode: resp.StatusCode,
-		UpstreamRequestID:  resp.Header.Get("x-request-id"),
+		UpstreamRequestID:  firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id")),
 		Kind:               "failover",
 		Message:            upstreamMsg,
 		Detail:             upstreamDetail,
 	})
-	shouldDisable := tempUnscheduled
-	if account.Platform != PlatformGrok && !tempUnscheduled {
-		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
+	retryableOnSameAccount := account.IsPoolMode() &&
+		(account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody))
+	var grokRetryDelay time.Duration
+	var grokRetryDeadline time.Time
+	var grokRetryMax int
+	if account.Platform == PlatformGrok {
+		retryableOnSameAccount, grokRetryDelay, grokRetryDeadline, grokRetryMax = grokSameAccountRetryMetadata(account, resp.StatusCode, respBody)
 	}
-	return s.newOpenAIAccountFailoverError(
+	shouldDisable := false
+	if tempUnscheduled {
+		retryableOnSameAccount = false
+	} else if account.Platform == PlatformGrok && decision.SystemReason == "" {
+		preventSameAccountRetry := s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
+		retryableOnSameAccount = !preventSameAccountRetry && retryableOnSameAccount
+	} else if account.Platform != PlatformGrok {
+		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
+		retryableOnSameAccount = !shouldDisable && retryableOnSameAccount
+	}
+	failoverErr := s.newOpenAIAccountFailoverError(
 		account,
 		resp.StatusCode,
 		resp.Header,
 		respBody,
 		upstreamMsg,
 		shouldDisable,
-		!shouldDisable && account.IsPoolMode() && (account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody)),
+		retryableOnSameAccount,
 	)
+	if account.Platform == PlatformGrok && retryableOnSameAccount {
+		failoverErr.RequestScopedTransient = resp.StatusCode == http.StatusTooManyRequests
+		failoverErr.SameAccountRetryDelay = grokRetryDelay
+		failoverErr.SameAccountRetryDeadline = grokRetryDeadline
+		failoverErr.SameAccountRetryMax = grokRetryMax
+	}
+	return failoverErr
 }
 
 // openAIChatCompletionsTargetURL 解析账号的（非 Grok）Chat Completions 上游端点。
