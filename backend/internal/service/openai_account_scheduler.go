@@ -379,8 +379,9 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		s.metrics.recordSelect(decision)
 	}()
 
+	platform := normalizeOpenAICompatiblePlatform(req.Platform)
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
-	if previousResponseID != "" && normalizeOpenAICompatiblePlatform(req.Platform) == PlatformOpenAI {
+	if previousResponseID != "" && platform == PlatformOpenAI {
 		breakPreviousReq := req
 		breakPreviousReq.BreakStickyOnly = true
 		breakPreviousReq.BreakStickyKind = openAIAccountScheduleLayerPreviousResponse
@@ -436,25 +437,27 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
-	breakStickyReq := req
-	breakStickyReq.BreakStickyOnly = true
-	breakStickyReq.BreakStickyKind = openAIAccountScheduleLayerSessionSticky
-	selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, breakStickyReq)
-	if err != nil && !isNoAvailableOpenAIAccountSelectionError(err) {
-		decision.Layer = openAIAccountScheduleLayerLoadBalance
-		decision.CandidateCount = candidateCount
-		decision.TopK = topK
-		decision.LoadSkew = loadSkew
-		return nil, decision, err
-	}
-	if selection != nil && selection.Account != nil {
-		decision.Layer = openAIAccountScheduleLayerLoadBalance
-		decision.CandidateCount = candidateCount
-		decision.TopK = topK
-		decision.LoadSkew = loadSkew
-		decision.SelectedAccountID = selection.Account.ID
-		decision.SelectedAccountType = selection.Account.Type
-		return selection, decision, nil
+	if platform == PlatformOpenAI {
+		breakStickyReq := req
+		breakStickyReq.BreakStickyOnly = true
+		breakStickyReq.BreakStickyKind = openAIAccountScheduleLayerSessionSticky
+		breakSelection, breakCandidateCount, breakTopK, breakLoadSkew, breakErr := s.selectByLoadBalance(ctx, breakStickyReq)
+		if breakErr != nil && !isNoAvailableOpenAIAccountSelectionError(breakErr) {
+			decision.Layer = openAIAccountScheduleLayerLoadBalance
+			decision.CandidateCount = breakCandidateCount
+			decision.TopK = breakTopK
+			decision.LoadSkew = breakLoadSkew
+			return nil, decision, breakErr
+		}
+		if breakSelection != nil && breakSelection.Account != nil {
+			decision.Layer = openAIAccountScheduleLayerLoadBalance
+			decision.CandidateCount = breakCandidateCount
+			decision.TopK = breakTopK
+			decision.LoadSkew = breakLoadSkew
+			decision.SelectedAccountID = breakSelection.Account.ID
+			decision.SelectedAccountType = breakSelection.Account.Type
+			return breakSelection, decision, nil
+		}
 	}
 
 	if !req.StickyWeighted {
@@ -474,7 +477,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
-	selection, candidateCount, topK, loadSkew, err = s.selectByLoadBalance(ctx, req)
+	selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, req)
 	decision.Layer = openAIAccountScheduleLayerLoadBalance
 	decision.CandidateCount = candidateCount
 	decision.TopK = topK
@@ -2140,26 +2143,28 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 			}
 		}
 
-		selection, err := s.selectLegacyBreakStickyAccount(
-			ctx,
-			groupID,
-			sessionHash,
-			requestedModel,
-			excludedIDs,
-			requiredTransport,
-			requiredCapability,
-			requiredImageCapability,
-			requireCompact,
-			openAIAccountScheduleLayerSessionSticky,
-		)
-		if err != nil {
-			return nil, decision, err
-		}
-		if selection != nil && selection.Account != nil {
-			decision.Layer = openAIAccountScheduleLayerLoadBalance
-			decision.SelectedAccountID = selection.Account.ID
-			decision.SelectedAccountType = selection.Account.Type
-			return selection, decision, nil
+		if platform == PlatformOpenAI {
+			selection, err := s.selectLegacyBreakStickyAccount(
+				ctx,
+				groupID,
+				sessionHash,
+				requestedModel,
+				excludedIDs,
+				requiredTransport,
+				requiredCapability,
+				requiredImageCapability,
+				requireCompact,
+				openAIAccountScheduleLayerSessionSticky,
+			)
+			if err != nil {
+				return nil, decision, err
+			}
+			if selection != nil && selection.Account != nil {
+				decision.Layer = openAIAccountScheduleLayerLoadBalance
+				decision.SelectedAccountID = selection.Account.ID
+				decision.SelectedAccountType = selection.Account.Type
+				return selection, decision, nil
+			}
 		}
 
 		decision.Layer = openAIAccountScheduleLayerLoadBalance
