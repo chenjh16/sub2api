@@ -1156,21 +1156,21 @@ func init() {
 	// group.DefaultMappedModelValidator is a validator for the "default_mapped_model" field. It is called by the builders before save.
 	group.DefaultMappedModelValidator = groupDescDefaultMappedModel.Validators[0].(func(string) error)
 	// groupDescOpenaiDefaultServiceTier is the schema descriptor for openai_default_service_tier field.
-	groupDescOpenaiDefaultServiceTier := groupFields[42].Descriptor()
+	groupDescOpenaiDefaultServiceTier := groupFields[43].Descriptor()
 	// group.DefaultOpenaiDefaultServiceTier holds the default value on creation for the openai_default_service_tier field.
 	group.DefaultOpenaiDefaultServiceTier = groupDescOpenaiDefaultServiceTier.Default.(string)
 	// group.OpenaiDefaultServiceTierValidator is a validator for the "openai_default_service_tier" field. It is called by the builders before save.
 	group.OpenaiDefaultServiceTierValidator = groupDescOpenaiDefaultServiceTier.Validators[0].(func(string) error)
 	// groupDescMessagesDispatchModelConfig is the schema descriptor for messages_dispatch_model_config field.
-	groupDescMessagesDispatchModelConfig := groupFields[43].Descriptor()
+	groupDescMessagesDispatchModelConfig := groupFields[44].Descriptor()
 	// group.DefaultMessagesDispatchModelConfig holds the default value on creation for the messages_dispatch_model_config field.
 	group.DefaultMessagesDispatchModelConfig = groupDescMessagesDispatchModelConfig.Default.(domain.OpenAIMessagesDispatchModelConfig)
 	// groupDescModelsListConfig is the schema descriptor for models_list_config field.
-	groupDescModelsListConfig := groupFields[44].Descriptor()
+	groupDescModelsListConfig := groupFields[45].Descriptor()
 	// group.DefaultModelsListConfig holds the default value on creation for the models_list_config field.
 	group.DefaultModelsListConfig = groupDescModelsListConfig.Default.(domain.GroupModelsListConfig)
 	// groupDescRpmLimit is the schema descriptor for rpm_limit field.
-	groupDescRpmLimit := groupFields[45].Descriptor()
+	groupDescRpmLimit := groupFields[46].Descriptor()
 	// group.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	group.DefaultRpmLimit = groupDescRpmLimit.Default.(int)
 	// groupDescMaxReasoningEffort is the schema descriptor for max_reasoning_effort field.

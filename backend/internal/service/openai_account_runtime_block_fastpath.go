@@ -76,6 +76,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		Body:            responseBody,
 		Account:         account,
 	}
+	s.recordOpenAIAccountModelTransientFailureIfNeeded(account, statusCode, responseBody, canonicalModel...)
 	if decision := s.decideOpenAIFailoverRule(ctx, event); decision != nil {
 		return s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
 	}
@@ -106,23 +107,28 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if shouldDisable && !modelTempMatched {
 		s.BlockAccountScheduling(account, time.Time{}, "upstream_disable")
 	}
-	if !shouldDisable && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey && shouldCooldownOpenAITransientUpstreamError(statusCode, responseBody) {
-		model := ""
-		if len(canonicalModel) > 0 {
-			model = canonicalModel[0]
-		}
-		decision := s.recordOpenAIAccountModelTransientFailure(account, model, time.Now())
-		if decision.FailureStreak > 0 {
-			slog.Warn("openai_model_transient_state",
-				"account_id", account.ID,
-				"model", openAIAccountModelTransientModel(model),
-				"failure_streak", decision.FailureStreak,
-				"cooldown_ms", decision.Cooldown.Milliseconds(),
-				"block_scope", "account_model",
-			)
-		}
-	}
 	return shouldDisable
+}
+
+func (s *OpenAIGatewayService) recordOpenAIAccountModelTransientFailureIfNeeded(account *Account, statusCode int, responseBody []byte, canonicalModel ...string) {
+	if s == nil || account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey || !shouldCooldownOpenAITransientUpstreamError(statusCode, responseBody) {
+		return
+	}
+
+	model := ""
+	if len(canonicalModel) > 0 {
+		model = canonicalModel[0]
+	}
+	decision := s.recordOpenAIAccountModelTransientFailure(account, model, time.Now())
+	if decision.FailureStreak > 0 {
+		slog.Warn("openai_model_transient_state",
+			"account_id", account.ID,
+			"model", openAIAccountModelTransientModel(model),
+			"failure_streak", decision.FailureStreak,
+			"cooldown_ms", decision.Cooldown.Milliseconds(),
+			"block_scope", "account_model",
+		)
+	}
 }
 
 func shouldCooldownOpenAITransientUpstreamError(statusCode int, responseBody []byte) bool {
