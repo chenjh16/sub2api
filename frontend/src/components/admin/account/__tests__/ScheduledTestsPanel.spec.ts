@@ -54,7 +54,7 @@ const BaseDialogStub = defineComponent({
 })
 
 const InputStub = defineComponent({
-  name: 'Input',
+  name: 'InputStub',
   props: {
     modelValue: {
       type: [String, Number],
@@ -78,7 +78,7 @@ const ToggleStub = defineComponent({
 })
 
 const SelectStub = defineComponent({
-  name: 'Select',
+  name: 'SelectStub',
   props: {
     modelValue: {
       type: [String, Number, Boolean, null],
