@@ -409,7 +409,7 @@ func (a *Account) GetStringMapCredential(key string) map[string]string {
 
 	switch val := v.(type) {
 	case map[string]string:
-		return cloneStringMap(val)
+		return cloneAccountCredentialStringMap(val)
 	case map[string]any:
 		return stringMapFromAny(val)
 	case string:
@@ -419,7 +419,7 @@ func (a *Account) GetStringMapCredential(key string) map[string]string {
 		}
 		var parsed map[string]string
 		if err := json.Unmarshal([]byte(val), &parsed); err == nil {
-			return cloneStringMap(parsed)
+			return cloneAccountCredentialStringMap(parsed)
 		}
 		var parsedAny map[string]any
 		if err := json.Unmarshal([]byte(val), &parsedAny); err == nil {
@@ -429,7 +429,7 @@ func (a *Account) GetStringMapCredential(key string) map[string]string {
 	return nil
 }
 
-func cloneStringMap(values map[string]string) map[string]string {
+func cloneAccountCredentialStringMap(values map[string]string) map[string]string {
 	if len(values) == 0 {
 		return nil
 	}
