@@ -2242,6 +2242,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 				requiredCapability,
 				requiredImageCapability,
 				requireCompact,
+				useUpstreamTokenCost,
 				openAIAccountScheduleLayerPreviousResponse,
 			)
 			if err != nil {
@@ -2266,6 +2267,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 				requiredCapability,
 				requiredImageCapability,
 				requireCompact,
+				useUpstreamTokenCost,
 				openAIAccountScheduleLayerSessionSticky,
 			)
 			if err != nil {
@@ -2404,6 +2406,7 @@ func (s *OpenAIGatewayService) selectLegacyBreakStickyAccount(
 	requiredCapability OpenAIEndpointCapability,
 	requiredImageCapability OpenAIImagesCapability,
 	requireCompact bool,
+	useUpstreamTokenCost bool,
 	stickyKind string,
 ) (*AccountSelectionResult, error) {
 	accounts, err := s.listSchedulableAccounts(ctx, groupID, PlatformOpenAI)
@@ -2440,6 +2443,7 @@ func (s *OpenAIGatewayService) selectLegacyBreakStickyAccount(
 			effectiveExcludedIDs,
 			requireCompact,
 			requiredCapability,
+			useUpstreamTokenCost,
 		)
 		if selectErr != nil {
 			if isNoAvailableOpenAIAccountSelectionError(selectErr) {
