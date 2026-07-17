@@ -395,9 +395,9 @@ func TestForwardAlphaSearchPATResponsesFallbackUnauthorizedDoesNotMarkAccountErr
 
 // API key 上游（官方平台或第三方中转）不提供 /v1/alpha/search 时返回的
 // 404/405 必须触发换号而不是把错误透传给客户端：混合分组里 OAuth 账号可以
-// 承接搜索，请求不能死在先被选中的 API key 账号上。端点缺失也不能写账号
-// 错误状态——账号本身是健康的。
-func TestForwardAlphaSearchAPIKeyEndpointNotFoundFailsOver(t *testing.T) {
+// 承接搜索，请求不能死在先被选中的 API key 账号上。即使管理员策略只有不匹配
+// 的规则，端点专属回退也必须生效；端点缺失不能写账号错误状态——账号本身健康。
+func TestForwardAlphaSearchAPIKeyEndpointNotFoundFailsOverDespiteNonMatchingPolicy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"id":"search-session","model":"gpt-5.6-sol","commands":{"search_query":[{"q":"news"}]}}`)
 	recorder := httptest.NewRecorder()
@@ -411,12 +411,30 @@ func TestForwardAlphaSearchAPIKeyEndpointNotFoundFailsOver(t *testing.T) {
 	}}
 	repo := &alphaSearchAccountStateRepo{}
 	cfg := &config.Config{}
-	service := &OpenAIGatewayService{
-		cfg:              cfg,
-		httpUpstream:     upstream,
-		accountRepo:      repo,
-		rateLimitService: NewRateLimitService(repo, nil, cfg, nil, nil),
+	settings := GatewayFailoverPolicySettings{
+		MatchMode: "first",
+		Rules: []GatewayFailoverRule{
+			{
+				ID:       "unrelated_status",
+				Name:     "Unrelated status",
+				Enabled:  true,
+				Priority: 1,
+				Event:    GatewayFailoverRuleEventHTTPResponse,
+				Match: GatewayFailoverRuleMatch{
+					StatusCodes: []int{http.StatusTeapot},
+				},
+				Action: GatewayFailoverRuleAction{
+					Failover:      true,
+					CooldownScope: GatewayFailoverCooldownScopeNone,
+				},
+			},
+		},
 	}
+	service := newOpenAIFailoverPolicyTestService(t, settings)
+	service.cfg = cfg
+	service.httpUpstream = upstream
+	service.accountRepo = repo
+	service.rateLimitService = NewRateLimitService(repo, nil, cfg, nil, nil)
 	account := &Account{
 		ID:       9,
 		Platform: PlatformOpenAI,
