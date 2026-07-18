@@ -315,7 +315,7 @@ func TestGatewayFailoverPolicy_GetChannelFailedRequiresOverloadMessage(t *testin
 	body := []byte(`{"error":{"code":"get_channel_failed","message":"no available channel","param":"","type":"new_api_error"}}`)
 
 	require.True(t, svc.shouldFailoverOpenAIUpstreamResponseWithContext(context.Background(), account, http.StatusInternalServerError, http.Header{}, "", body))
-	require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, body))
+	require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, body))
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
@@ -331,7 +331,7 @@ func TestGatewayFailoverPolicy_HTTP5xxThresholdBlocksAccount(t *testing.T) {
 	account := &Account{ID: 9002, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 	before := time.Now()
 
-	require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, []byte(`{"error":{"message":"bad gateway"}}`)))
+	require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, []byte(`{"error":{"message":"bad gateway"}}`)))
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 
 	require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, []byte(`{"error":{"message":"bad gateway"}}`)))
@@ -352,9 +352,9 @@ func TestGatewayFailoverPolicy_SuccessClearsHTTP5xxCounter(t *testing.T) {
 	svc := newOpenAIFailoverPolicyTestService(t, settings)
 	account := &Account{ID: 9003, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 
-	require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, nil))
+	require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, nil))
 	svc.clearOpenAIConsecutiveFailures(account)
-	require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, nil))
+	require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, nil))
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
@@ -368,7 +368,15 @@ func TestGatewayFailoverPolicy_TransportThresholdBlocksAccount(t *testing.T) {
 		rule.Action.JitterPercent = 0
 	})
 	svc := newOpenAIFailoverPolicyTestService(t, settings)
-	account := &Account{ID: 9004, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	account := &Account{
+		ID:       9004,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"pool_mode":                    true,
+			"pool_mode_retry_status_codes": []any{float64(http.StatusBadGateway)},
+		},
+	}
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -378,10 +386,12 @@ func TestGatewayFailoverPolicy_TransportThresholdBlocksAccount(t *testing.T) {
 	firstErr := svc.handleOpenAIUpstreamTransportError(context.Background(), c, account, err, false)
 	var firstFailover *UpstreamFailoverError
 	require.ErrorAs(t, firstErr, &firstFailover)
+	require.True(t, firstFailover.RetryableOnSameAccount)
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 
 	secondErr := svc.handleOpenAIUpstreamTransportError(context.Background(), c, account, err, false)
 	var secondFailover *UpstreamFailoverError
 	require.ErrorAs(t, secondErr, &secondFailover)
+	require.False(t, secondFailover.RetryableOnSameAccount)
 	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
