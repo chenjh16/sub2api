@@ -156,9 +156,6 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		Account:         account,
 	}
 	s.recordOpenAIAccountModelTransientFailureIfNeeded(account, statusCode, responseBody, canonicalModel...)
-	if decision := s.decideOpenAIFailoverRule(ctx, event); decision != nil {
-		return s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
-	}
 
 	if s == nil || account == nil {
 		return false
@@ -171,13 +168,33 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if s.rateLimitService != nil && len(canonicalModel) > 0 && s.rateLimitService.HandleUpstreamModelNotFound(stateCtx, account, canonicalModel[0], statusCode, responseBody) {
 		return true
 	}
-	// Isolate a custom temporary-unschedulable match to the known upstream
-	// model before entering the generic account error path. This keeps the
-	// account available to other models and avoids the account runtime blocker.
-	if s.rateLimitService != nil && len(canonicalModel) > 0 && strings.TrimSpace(canonicalModel[0]) != "" &&
-		tempUnschedRulesApply(account, statusCode, responseBody, canonicalModel[0]) &&
-		s.rateLimitService.HandleTempUnschedulable(stateCtx, account, statusCode, responseBody, canonicalModel[0]) {
-		return true
+	accountErrorPolicyMatched := false
+	modelKey := firstRequestedModel(canonicalModel)
+	// Keep credential-level 401s on the authentication path. Only an explicit
+	// model-scoped 401 rule or a custom error-code policy may intercept them.
+	if s.rateLimitService != nil && (statusCode != http.StatusUnauthorized ||
+		account.IsCustomErrorCodesEnabled() || tempUnschedRulesApply(account, statusCode, responseBody, modelKey)) {
+		switch s.rateLimitService.CheckErrorPolicy(stateCtx, account, statusCode, responseBody, canonicalModel...) {
+		case ErrorPolicyTempUnscheduled:
+			// Account rules take precedence over the global policy, while their
+			// configured scope determines whether the whole account is blocked.
+			matches := matchTempUnschedulableRules(account, statusCode, responseBody)
+			if len(matches) == 0 || !tempUnschedHitUsesModelScope(account, matches[0].rule, modelKey, statusCode, responseBody) {
+				s.BlockAccountScheduling(account, time.Time{}, "temp_unschedulable")
+			}
+			return true
+		case ErrorPolicyMatched:
+			accountErrorPolicyMatched = true
+		case ErrorPolicySkipped:
+			if account.IsCustomErrorCodesEnabled() {
+				return false
+			}
+		}
+	}
+	if !accountErrorPolicyMatched {
+		if decision := s.decideOpenAIFailoverRule(ctx, event); decision != nil {
+			return s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
+		}
 	}
 	if statusCode == http.StatusTooManyRequests && s.rateLimitService != nil && len(canonicalModel) > 0 &&
 		s.rateLimitService.HandleOpenAICodexSparkRateLimit(stateCtx, account, canonicalModel[0], statusCode, headers, responseBody) {
