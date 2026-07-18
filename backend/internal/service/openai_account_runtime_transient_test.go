@@ -78,8 +78,8 @@ func TestHandleOpenAITransientError_DefaultFailoverPolicyPreservesModelScope(t *
 	}
 	body := []byte(`{"error":{"message":"temporary upstream failure"}}`)
 
-	require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, body, "gpt-5.5"))
-	require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, body, "gpt-5.5"))
+	require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, body, "gpt-5.5"))
+	require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, body, "gpt-5.5"))
 
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 	require.True(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.5"))

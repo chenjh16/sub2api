@@ -146,6 +146,7 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 	}
 
 	classification := classifyUpstreamTransportError(err)
+	preventSameAccountRetry := classification.Persistent
 	if classification.Persistent {
 		s.tempUnscheduleOpenAITransportError(ctx, account, safeErr)
 		if s != nil {
@@ -159,14 +160,14 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 			Account:             account,
 		}
 		if decision := s.decideOpenAIFailoverRule(ctx, event); decision != nil && decision.Failover {
-			s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
+			preventSameAccountRetry = s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
 		}
 	}
 
 	return &UpstreamFailoverError{
 		StatusCode:             http.StatusBadGateway,
 		ResponseBody:           openAITransportFailoverBody,
-		RetryableOnSameAccount: !classification.Persistent && account != nil && account.IsPoolMode() && account.IsPoolModeRetryableStatus(http.StatusBadGateway),
+		RetryableOnSameAccount: !preventSameAccountRetry && account != nil && account.IsPoolMode() && account.IsPoolModeRetryableStatus(http.StatusBadGateway),
 	}
 }
 
