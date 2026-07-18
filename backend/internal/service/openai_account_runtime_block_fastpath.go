@@ -77,9 +77,6 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		Account:         account,
 	}
 	s.recordOpenAIAccountModelTransientFailureIfNeeded(account, statusCode, responseBody, canonicalModel...)
-	if decision := s.decideOpenAIFailoverRule(ctx, event); decision != nil {
-		return s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
-	}
 
 	if s == nil || account == nil {
 		return false
@@ -88,12 +85,28 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if s.rateLimitService != nil && len(canonicalModel) > 0 && s.rateLimitService.HandleUpstreamModelNotFound(stateCtx, account, canonicalModel[0], statusCode, responseBody) {
 		return true
 	}
-	// Isolate a custom temporary-unschedulable match to the known upstream
-	// model before entering the generic account error path. This keeps the
-	// account available to other models and avoids the account runtime blocker.
-	if s.rateLimitService != nil && statusCode != http.StatusUnauthorized && len(canonicalModel) > 0 && strings.TrimSpace(canonicalModel[0]) != "" &&
-		s.rateLimitService.HandleTempUnschedulable(stateCtx, account, statusCode, responseBody, canonicalModel[0]) {
-		return true
+	accountErrorPolicyMatched := false
+	if s.rateLimitService != nil {
+		switch s.rateLimitService.CheckErrorPolicy(stateCtx, account, statusCode, responseBody, canonicalModel...) {
+		case ErrorPolicyTempUnscheduled:
+			// Account-specific temporary rules take precedence over the global
+			// gateway policy and remain isolated to the canonical model.
+			if len(canonicalModel) == 0 || strings.TrimSpace(canonicalModel[0]) == "" {
+				s.BlockAccountScheduling(account, time.Time{}, "temp_unschedulable")
+			}
+			return true
+		case ErrorPolicyMatched:
+			accountErrorPolicyMatched = true
+		case ErrorPolicySkipped:
+			if account.IsCustomErrorCodesEnabled() {
+				return false
+			}
+		}
+	}
+	if !accountErrorPolicyMatched {
+		if decision := s.decideOpenAIFailoverRule(ctx, event); decision != nil {
+			return s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
+		}
 	}
 	if statusCode == http.StatusTooManyRequests {
 		s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody)

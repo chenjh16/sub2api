@@ -129,9 +129,9 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	})
 	retryableOnSameAccount := account.IsPoolMode() &&
 		(account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody))
-	if decision.SystemReason == "" {
-		s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
-		retryableOnSameAccount = false
+	if account.Platform == PlatformGrok && decision.SystemReason == "" {
+		preventSameAccountRetry := s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
+		retryableOnSameAccount = !preventSameAccountRetry && retryableOnSameAccount
 	} else if account.Platform != PlatformGrok {
 		shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
 		retryableOnSameAccount = !shouldDisable && retryableOnSameAccount
