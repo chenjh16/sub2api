@@ -403,7 +403,10 @@ func (s *OpenAIGatewayService) applyOpenAIFailoverRuleSideEffects(ctx context.Co
 			time.Duration(rule.Match.Consecutive.WindowSeconds)*time.Second,
 		)
 		if !reached {
-			return action.Failover
+			// The rule still requests failover, but the account has not entered its
+			// cooldown yet. Pool mode may use its bounded same-account retry before
+			// the outer scheduler switches accounts.
+			return false
 		}
 		s.applyOpenAIRuleCooldown(ctx, account, event, rule, count, rule.Match.Consecutive.Threshold)
 		return action.Failover
