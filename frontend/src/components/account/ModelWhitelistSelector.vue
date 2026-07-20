@@ -355,6 +355,7 @@ import {
   mergeAutoRulesFromMappings,
   mergeModelMappings,
   normalizeModelMappingAutomationSettings,
+  repairLegacyReversedAutoMappings,
   suggestRuleBasedModelMappings,
   type ModelMappingAutomationSettings,
   type ModelMappingEntry
@@ -677,23 +678,30 @@ const updateModelMappings = (mappings: ModelMappingEntry[]) => {
 const applyMappingSuggestions = async (
   suggestions: ModelMappingEntry[],
   successKey: 'admin.accounts.autoMapAdded' | 'admin.accounts.autoRuleMapAdded',
-  shouldPersistRules: boolean
+  shouldPersistRules: boolean,
+  baseMappings: ModelMappingEntry[] = currentModelMappings.value,
+  repairedMappings: ModelMappingEntry[] = [],
+  repairedCount = 0
 ) => {
-  const before = currentModelMappings.value
-  const merged = mergeModelMappings(before, suggestions)
-  const added = merged.length - mergeModelMappings(before, []).length
-  if (added <= 0) {
+  const normalizedBase = mergeModelMappings(baseMappings, [])
+  const merged = mergeModelMappings(normalizedBase, suggestions)
+  const added = merged.length - normalizedBase.length
+  const changed = added + repairedCount
+  if (changed <= 0) {
     appStore.showInfo(t('admin.accounts.autoMapNoChanges'))
     return
   }
 
   updateModelMappings(merged)
-  appStore.showSuccess(t(successKey, { count: added }))
+  appStore.showSuccess(t(successKey, { count: changed }))
 
   if (shouldPersistRules) {
     const nextSettings = {
       ...mappingAutomationSettings.value,
-      rules: mergeAutoRulesFromMappings(mappingAutomationSettings.value.rules, suggestions)
+      rules: mergeAutoRulesFromMappings(
+        mappingAutomationSettings.value.rules,
+        [...repairedMappings, ...suggestions]
+      )
     }
     try {
       mappingAutomationSettings.value = normalizeModelMappingAutomationSettings(
@@ -715,12 +723,23 @@ const applyRuleMappings = async () => {
   isApplyingMapping.value = true
   try {
     await loadMappingAutomationSettings()
+    const repaired = repairLegacyReversedAutoMappings(
+      props.modelValue,
+      currentModelMappings.value
+    )
     const suggestions = suggestRuleBasedModelMappings(
       props.modelValue,
-      currentModelMappings.value,
+      repaired.mappings,
       mappingAutomationSettings.value.rules
     )
-    await applyMappingSuggestions(suggestions, 'admin.accounts.autoRuleMapAdded', false)
+    await applyMappingSuggestions(
+      suggestions,
+      'admin.accounts.autoRuleMapAdded',
+      false,
+      repaired.mappings,
+      repaired.repairedMappings,
+      repaired.repairedCount
+    )
   } finally {
     isApplyingMapping.value = false
   }
@@ -736,17 +755,24 @@ const applyAutoMappings = async () => {
   isApplyingMapping.value = true
   try {
     await loadMappingAutomationSettings()
+    const repaired = repairLegacyReversedAutoMappings(
+      props.modelValue,
+      currentModelMappings.value
+    )
     const ruleSuggestions = suggestRuleBasedModelMappings(
       props.modelValue,
-      currentModelMappings.value,
+      repaired.mappings,
       mappingAutomationSettings.value.rules
     )
-    const afterRules = mergeModelMappings(currentModelMappings.value, ruleSuggestions)
+    const afterRules = mergeModelMappings(repaired.mappings, ruleSuggestions)
     const discoveredSuggestions = discoverModelMappingSuggestions(props.modelValue, afterRules)
     await applyMappingSuggestions(
       [...ruleSuggestions, ...discoveredSuggestions],
       'admin.accounts.autoMapAdded',
-      true
+      true,
+      repaired.mappings,
+      repaired.repairedMappings,
+      repaired.repairedCount
     )
   } finally {
     isApplyingMapping.value = false
