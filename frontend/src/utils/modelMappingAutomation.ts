@@ -25,16 +25,58 @@ const MAX_BATCH_TEST_CONCURRENCY = 10
 
 const normalizeName = (value: string) => value.trim()
 
+function deriveAutoMappingSuggestion(actualModel: string): ModelMappingSuggestion | null {
+  const actual = normalizeName(actualModel)
+  if (!actual) return null
+
+  const slashIndex = actual.lastIndexOf('/')
+  if (slashIndex > 0 && slashIndex < actual.length - 1) {
+    const requestModel = normalizeName(actual.slice(slashIndex + 1)).toLowerCase()
+    if (requestModel && !requestModel.includes('/') && requestModel !== actual) {
+      return {
+        from: requestModel,
+        to: actual,
+        reason: 'provider_prefix'
+      }
+    }
+  }
+
+  const lowercaseRequestModel = actual.toLowerCase()
+  if (actual !== lowercaseRequestModel && /[A-Z]/.test(actual)) {
+    return {
+      from: lowercaseRequestModel,
+      to: actual,
+      reason: 'lowercase'
+    }
+  }
+
+  return null
+}
+
+function normalizeAutoDiscoveredRuleDirection(rule: ModelMappingAutoRule): ModelMappingAutoRule {
+  if (normalizeName(rule.source || '').toLowerCase() !== 'auto_discovered') return rule
+
+  const corrected = deriveAutoMappingSuggestion(rule.from || '')
+  if (!corrected || corrected.from !== normalizeName(rule.to)) return rule
+
+  return {
+    ...rule,
+    from: corrected.from,
+    to: corrected.to
+  }
+}
+
 export function normalizeModelMappingAutomationSettings(
   settings?: Partial<ModelMappingAutomationSettings> | null
 ): ModelMappingAutomationSettings {
   const seen = new Set<string>()
   const rules: ModelMappingAutoRule[] = []
-  for (const rule of settings?.rules || []) {
+  for (const rawRule of settings?.rules || []) {
+    const rule = normalizeAutoDiscoveredRuleDirection(rawRule)
     const from = normalizeName(rule.from || '')
     const to = normalizeName(rule.to || '')
     if (!from || !to) continue
-    const key = `${from.toLowerCase()}\u0000${to.toLowerCase()}`
+    const key = `${from}\u0000${to}`
     if (seen.has(key)) continue
     seen.add(key)
     rules.push({
@@ -59,31 +101,32 @@ export function normalizeModelMappingAutomationSettings(
 }
 
 function mappingKey(mapping: ModelMappingEntry) {
-  return `${normalizeName(mapping.from).toLowerCase()}\u0000${normalizeName(mapping.to).toLowerCase()}`
+  return `${normalizeName(mapping.from)}\u0000${normalizeName(mapping.to)}`
 }
 
 function buildExistingIndexes(models: string[], mappings: ModelMappingEntry[]) {
   const modelNames = new Set(models.map(model => normalizeName(model)).filter(Boolean))
-  const modelNamesLower = new Set(Array.from(modelNames).map(model => model.toLowerCase()))
-  const mappingFromLower = new Set<string>()
-  const mappingToLower = new Set<string>()
-  const mappingPairsLower = new Set<string>()
+  const unprefixedModelNamesLower = new Set(
+    Array.from(modelNames)
+      .filter(model => !model.includes('/'))
+      .map(model => model.toLowerCase())
+  )
+  const mappingFromNames = new Set<string>()
+  const mappingPairs = new Set<string>()
 
   for (const mapping of mappings) {
     const from = normalizeName(mapping.from)
     const to = normalizeName(mapping.to)
     if (!from || !to) continue
-    mappingFromLower.add(from.toLowerCase())
-    mappingToLower.add(to.toLowerCase())
-    mappingPairsLower.add(mappingKey({ from, to }))
+    mappingFromNames.add(from)
+    mappingPairs.add(mappingKey({ from, to }))
   }
 
   return {
     modelNames,
-    modelNamesLower,
-    mappingFromLower,
-    mappingToLower,
-    mappingPairsLower
+    unprefixedModelNamesLower,
+    mappingFromNames,
+    mappingPairs
   }
 }
 
@@ -108,16 +151,19 @@ export function suggestRuleBasedModelMappings(
 ): ModelMappingSuggestion[] {
   const indexes = buildExistingIndexes(models, mappings)
   const suggestions: ModelMappingSuggestion[] = []
-  const seenPairs = new Set(indexes.mappingPairsLower)
+  const seenPairs = new Set(indexes.mappingPairs)
+  const seenFrom = new Set(indexes.mappingFromNames)
 
   for (const rule of rules) {
     if (rule.enabled === false) continue
     const from = normalizeName(rule.from)
     const to = normalizeName(rule.to)
     if (!from || !to) continue
-    if (!indexes.modelNamesLower.has(from.toLowerCase())) continue
-    if (indexes.mappingFromLower.has(from.toLowerCase())) continue
+    if (!indexes.modelNames.has(to)) continue
+    if (indexes.modelNames.has(from)) continue
+    if (seenFrom.has(from)) continue
     appendSuggestion(suggestions, seenPairs, { from, to, reason: 'rule' })
+    seenFrom.add(from)
   }
 
   return suggestions
@@ -129,45 +175,65 @@ export function discoverModelMappingSuggestions(
 ): ModelMappingSuggestion[] {
   const indexes = buildExistingIndexes(models, mappings)
   const suggestions: ModelMappingSuggestion[] = []
-  const seenPairs = new Set(indexes.mappingPairsLower)
+  const seenPairs = new Set(indexes.mappingPairs)
+  const seenFrom = new Set(indexes.mappingFromNames)
 
   for (const rawModel of models) {
     const model = normalizeName(rawModel)
-    if (!model || indexes.mappingFromLower.has(model.toLowerCase())) continue
+    if (!model) continue
 
-    const lower = model.toLowerCase()
-    let providerPrefixSuggestionAdded = false
+    const suggestion = deriveAutoMappingSuggestion(model)
+    if (!suggestion) continue
+    if (indexes.modelNames.has(suggestion.from)) continue
+    if (
+      suggestion.reason === 'provider_prefix' &&
+      indexes.unprefixedModelNamesLower.has(suggestion.from.toLowerCase())
+    ) continue
+    if (seenFrom.has(suggestion.from)) continue
 
-    const slashIndex = model.indexOf('/')
-    if (slashIndex > 0 && slashIndex < model.length - 1) {
-      const target = normalizeName(model.slice(slashIndex + 1)).toLowerCase()
-      const targetLower = target.toLowerCase()
-      if (
-        target &&
-        !target.includes('/') &&
-        !indexes.modelNamesLower.has(targetLower) &&
-        !indexes.mappingFromLower.has(targetLower) &&
-        !indexes.mappingToLower.has(targetLower)
-      ) {
-        appendSuggestion(suggestions, seenPairs, {
-          from: model,
-          to: target,
-          reason: 'provider_prefix'
-        })
-        providerPrefixSuggestionAdded = true
-      }
-    }
-
-    if (!providerPrefixSuggestionAdded && model !== lower && /[A-Z]/.test(model)) {
-      appendSuggestion(suggestions, seenPairs, {
-        from: model,
-        to: lower,
-        reason: 'lowercase'
-      })
-    }
+    appendSuggestion(suggestions, seenPairs, suggestion)
+    seenFrom.add(suggestion.from)
   }
 
   return suggestions
+}
+
+export function repairLegacyReversedAutoMappings(
+  models: string[],
+  mappings: ModelMappingEntry[]
+): {
+  mappings: ModelMappingEntry[]
+  repairedMappings: ModelMappingEntry[]
+  repairedCount: number
+} {
+  const correctionByLegacyPair = new Map<string, ModelMappingSuggestion>()
+  for (const model of models) {
+    const suggestion = deriveAutoMappingSuggestion(model)
+    if (!suggestion) continue
+    correctionByLegacyPair.set(
+      mappingKey({ from: suggestion.to, to: suggestion.from }),
+      suggestion
+    )
+  }
+
+  const preserved: ModelMappingEntry[] = []
+  const repairedMappings: ModelMappingEntry[] = []
+  let repairedCount = 0
+  for (const mapping of mappings) {
+    const correction = correctionByLegacyPair.get(mappingKey(mapping))
+    if (!correction) {
+      preserved.push(mapping)
+      continue
+    }
+    repairedCount += 1
+    repairedMappings.push({ from: correction.from, to: correction.to })
+  }
+
+  return {
+    mappings: mergeModelMappings(preserved, repairedMappings),
+    repairedMappings,
+    repairedCount
+  }
 }
 
 export function mergeModelMappings(
@@ -181,7 +247,7 @@ export function mergeModelMappings(
     const from = normalizeName(mapping.from)
     const to = normalizeName(mapping.to)
     if (!from || !to) continue
-    const fromKey = from.toLowerCase()
+    const fromKey = from
     if (seenFrom.has(fromKey)) continue
     seenFrom.add(fromKey)
     merged.push({ from, to })
@@ -191,7 +257,7 @@ export function mergeModelMappings(
     const from = normalizeName(suggestion.from)
     const to = normalizeName(suggestion.to)
     if (!from || !to) continue
-    const fromKey = from.toLowerCase()
+    const fromKey = from
     if (seenFrom.has(fromKey)) continue
     seenFrom.add(fromKey)
     merged.push({ from, to })
