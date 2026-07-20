@@ -61,7 +61,29 @@ func normalizeModelMappingAutoRule(rule ModelMappingAutoRule) (ModelMappingAutoR
 	if len(rule.To) > modelMappingAutoRuleMaxModelNameLength {
 		rule.To = rule.To[:modelMappingAutoRuleMaxModelNameLength]
 	}
+	rule = normalizeLegacyAutoDiscoveredRuleDirection(rule)
 	return rule, true
+}
+
+func normalizeLegacyAutoDiscoveredRuleDirection(rule ModelMappingAutoRule) ModelMappingAutoRule {
+	if !strings.EqualFold(rule.Source, "auto_discovered") {
+		return rule
+	}
+
+	actualModel := rule.From
+	requestModel := ""
+	if slashIndex := strings.LastIndex(actualModel, "/"); slashIndex > 0 && slashIndex < len(actualModel)-1 {
+		requestModel = strings.ToLower(strings.TrimSpace(actualModel[slashIndex+1:]))
+	} else if lowercase := strings.ToLower(actualModel); lowercase != actualModel {
+		requestModel = lowercase
+	}
+	if requestModel == "" || requestModel != rule.To {
+		return rule
+	}
+
+	rule.From = requestModel
+	rule.To = actualModel
+	return rule
 }
 
 func normalizeModelMappingAutomationSettings(settings *ModelMappingAutomationSettings) *ModelMappingAutomationSettings {
@@ -78,7 +100,7 @@ func normalizeModelMappingAutomationSettings(settings *ModelMappingAutomationSet
 		if !ok {
 			continue
 		}
-		key := strings.ToLower(clean.From) + "\x00" + strings.ToLower(clean.To)
+		key := clean.From + "\x00" + clean.To
 		if _, exists := seen[key]; exists {
 			continue
 		}
