@@ -5,83 +5,179 @@ import {
   mergeAutoRulesFromMappings,
   mergeModelMappings,
   normalizeModelMappingAutomationSettings,
+  repairLegacyReversedAutoMappings,
   suggestRuleBasedModelMappings
 } from '../modelMappingAutomation'
 
 describe('modelMappingAutomation', () => {
-  it('discovers mixed-case models and maps them to lowercase names', () => {
+  it('maps a lowercase request name to the exact mixed-case upstream model', () => {
     const suggestions = discoverModelMappingSuggestions(['DeepSeek-V4-Pro', 'gpt-5.5'], [])
 
     expect(suggestions).toEqual([
-      { from: 'DeepSeek-V4-Pro', to: 'deepseek-v4-pro', reason: 'lowercase' }
+      { from: 'deepseek-v4-pro', to: 'DeepSeek-V4-Pro', reason: 'lowercase' }
     ])
   })
 
-  it('discovers provider-prefixed models only when the short name is absent', () => {
-    expect(discoverModelMappingSuggestions(['deepseek/deepseek-v4-flash'], [])).toEqual([
+  it('maps a short request name to the provider-prefixed upstream model', () => {
+    expect(discoverModelMappingSuggestions(['deepseek-ai/deepseek-v4-flash'], [])).toEqual([
       {
-        from: 'deepseek/deepseek-v4-flash',
-        to: 'deepseek-v4-flash',
+        from: 'deepseek-v4-flash',
+        to: 'deepseek-ai/deepseek-v4-flash',
         reason: 'provider_prefix'
       }
     ])
 
     expect(discoverModelMappingSuggestions(
-      ['deepseek/deepseek-v4-flash', 'deepseek-v4-flash'],
+      ['deepseek-ai/deepseek-v4-flash', 'deepseek-v4-flash'],
       []
     )).toEqual([])
   })
 
-  it('prefers provider-prefix mapping over whole-name lowercasing for mixed-case prefixed models', () => {
-    expect(discoverModelMappingSuggestions(['DeepSeek/DeepSeek-V4-Flash'], [])).toEqual([
+  it('keeps the reported provider-prefixed regression examples in request-to-upstream order', () => {
+    expect(discoverModelMappingSuggestions([
+      'deepseek-ai/deepseek-v4-flash',
+      'openai/gpt-oss-120b',
+      'z-ai/glm-5.2'
+    ], [])).toEqual([
       {
-        from: 'DeepSeek/DeepSeek-V4-Flash',
-        to: 'deepseek-v4-flash',
+        from: 'deepseek-v4-flash',
+        to: 'deepseek-ai/deepseek-v4-flash',
+        reason: 'provider_prefix'
+      },
+      {
+        from: 'gpt-oss-120b',
+        to: 'openai/gpt-oss-120b',
+        reason: 'provider_prefix'
+      },
+      {
+        from: 'glm-5.2',
+        to: 'z-ai/glm-5.2',
         reason: 'provider_prefix'
       }
     ])
   })
 
-  it('skips provider-prefix suggestions when the short name already appears in mappings', () => {
+  it('prefers the short request name for mixed-case provider-prefixed models', () => {
+    expect(discoverModelMappingSuggestions(['DeepSeek/DeepSeek-V4-Flash'], [])).toEqual([
+      {
+        from: 'deepseek-v4-flash',
+        to: 'DeepSeek/DeepSeek-V4-Flash',
+        reason: 'provider_prefix'
+      }
+    ])
+  })
+
+  it('prefers an unprefixed upstream model over a provider-prefixed duplicate', () => {
+    expect(discoverModelMappingSuggestions(
+      ['deepseek-ai/deepseek-v4-flash', 'DeepSeek-V4-Flash'],
+      []
+    )).toEqual([
+      {
+        from: 'deepseek-v4-flash',
+        to: 'DeepSeek-V4-Flash',
+        reason: 'lowercase'
+      }
+    ])
+  })
+
+  it('skips provider-prefix suggestions when the request name already has a mapping', () => {
     const suggestions = discoverModelMappingSuggestions(
-      ['deepseek/deepseek-v4-flash'],
-      [{ from: 'alias', to: 'deepseek-v4-flash' }]
+      ['deepseek-ai/deepseek-v4-flash'],
+      [{ from: 'deepseek-v4-flash', to: 'custom-upstream-model' }]
     )
 
     expect(suggestions).toEqual([])
   })
 
-  it('applies enabled global rules against the current model list', () => {
+  it('applies enabled global rules when their upstream target exists', () => {
     const suggestions = suggestRuleBasedModelMappings(
       ['DeepSeek-V4-Pro'],
       [],
       [
-        { enabled: true, from: 'DeepSeek-V4-Pro', to: 'deepseek-v4-pro' },
+        { enabled: true, from: 'deepseek-v4-pro', to: 'DeepSeek-V4-Pro' },
         { enabled: false, from: 'ignored', to: 'target' }
       ]
     )
 
     expect(suggestions).toEqual([
-      { from: 'DeepSeek-V4-Pro', to: 'deepseek-v4-pro', reason: 'rule' }
+      { from: 'deepseek-v4-pro', to: 'DeepSeek-V4-Pro', reason: 'rule' }
     ])
+  })
+
+  it('does not apply a rule when its upstream target is absent or its request name is native', () => {
+    expect(suggestRuleBasedModelMappings(
+      ['deepseek-v4-pro'],
+      [],
+      [
+        { enabled: true, from: 'alias', to: 'missing-model' },
+        { enabled: true, from: 'deepseek-v4-pro', to: 'deepseek-v4-pro' }
+      ]
+    )).toEqual([])
   })
 
   it('merges mappings by source model without replacing existing user entries', () => {
     const merged = mergeModelMappings(
-      [{ from: 'DeepSeek-V4-Pro', to: 'custom-target' }],
-      [{ from: 'DeepSeek-V4-Pro', to: 'deepseek-v4-pro' }, { from: 'Qwen3-Max', to: 'qwen3-max' }]
+      [{ from: 'deepseek-v4-pro', to: 'custom-target' }],
+      [{ from: 'deepseek-v4-pro', to: 'DeepSeek-V4-Pro' }, { from: 'qwen3-max', to: 'Qwen3-Max' }]
     )
 
     expect(merged).toEqual([
-      { from: 'DeepSeek-V4-Pro', to: 'custom-target' },
-      { from: 'Qwen3-Max', to: 'qwen3-max' }
+      { from: 'deepseek-v4-pro', to: 'custom-target' },
+      { from: 'qwen3-max', to: 'Qwen3-Max' }
     ])
+  })
+
+  it('keeps case-sensitive request names distinct from mixed-case identity mappings', () => {
+    expect(mergeModelMappings(
+      [{ from: 'DeepSeek-V4-Pro', to: 'DeepSeek-V4-Pro' }],
+      [{ from: 'deepseek-v4-pro', to: 'DeepSeek-V4-Pro' }]
+    )).toEqual([
+      { from: 'DeepSeek-V4-Pro', to: 'DeepSeek-V4-Pro' },
+      { from: 'deepseek-v4-pro', to: 'DeepSeek-V4-Pro' }
+    ])
+  })
+
+  it('repairs legacy reversed mappings generated by the old auto-mapping algorithm', () => {
+    expect(repairLegacyReversedAutoMappings(
+      ['deepseek-ai/deepseek-v4-flash', 'DeepSeek-V4-Pro'],
+      [
+        { from: 'deepseek-ai/deepseek-v4-flash', to: 'deepseek-v4-flash' },
+        { from: 'DeepSeek-V4-Pro', to: 'deepseek-v4-pro' },
+        { from: 'manual-alias', to: 'manual-target' }
+      ]
+    )).toEqual({
+      mappings: [
+        { from: 'manual-alias', to: 'manual-target' },
+        { from: 'deepseek-v4-flash', to: 'deepseek-ai/deepseek-v4-flash' },
+        { from: 'deepseek-v4-pro', to: 'DeepSeek-V4-Pro' }
+      ],
+      repairedMappings: [
+        { from: 'deepseek-v4-flash', to: 'deepseek-ai/deepseek-v4-flash' },
+        { from: 'deepseek-v4-pro', to: 'DeepSeek-V4-Pro' }
+      ],
+      repairedCount: 2
+    })
+  })
+
+  it('repairs a legacy provider pair even when an unprefixed model was added later', () => {
+    expect(repairLegacyReversedAutoMappings(
+      ['deepseek-ai/deepseek-v4-flash', 'DeepSeek-V4-Flash'],
+      [{ from: 'deepseek-ai/deepseek-v4-flash', to: 'deepseek-v4-flash' }]
+    )).toEqual({
+      mappings: [
+        { from: 'deepseek-v4-flash', to: 'deepseek-ai/deepseek-v4-flash' }
+      ],
+      repairedMappings: [
+        { from: 'deepseek-v4-flash', to: 'deepseek-ai/deepseek-v4-flash' }
+      ],
+      repairedCount: 1
+    })
   })
 
   it('normalizes and appends discovered mappings to the global whitelist', () => {
     const rules = mergeAutoRulesFromMappings(
       [{ enabled: true, from: ' existing ', to: 'target' }],
-      [{ from: 'DeepSeek-V4-Pro', to: 'deepseek-v4-pro' }],
+      [{ from: 'deepseek-v4-pro', to: 'DeepSeek-V4-Pro' }],
       'auto_discovered',
       '2026-07-02T00:00:00Z'
     )
@@ -90,10 +186,58 @@ describe('modelMappingAutomation', () => {
       { enabled: true, from: 'existing', to: 'target', source: '', updated_at: '' },
       {
         enabled: true,
-        from: 'DeepSeek-V4-Pro',
-        to: 'deepseek-v4-pro',
+        from: 'deepseek-v4-pro',
+        to: 'DeepSeek-V4-Pro',
         source: 'auto_discovered',
         updated_at: '2026-07-02T00:00:00Z'
+      }
+    ])
+  })
+
+  it('normalizes legacy auto-discovered whitelist rules without changing manual rules', () => {
+    expect(normalizeModelMappingAutomationSettings({
+      batch_test_concurrency: 3,
+      rules: [
+        {
+          enabled: true,
+          from: 'deepseek-ai/deepseek-v4-flash',
+          to: 'deepseek-v4-flash',
+          source: 'auto_discovered'
+        },
+        {
+          enabled: true,
+          from: 'DeepSeek-V4-Pro',
+          to: 'deepseek-v4-pro',
+          source: 'auto_discovered'
+        },
+        {
+          enabled: true,
+          from: 'manual-upstream',
+          to: 'manual-alias',
+          source: 'manual'
+        }
+      ]
+    }).rules).toEqual([
+      {
+        enabled: true,
+        from: 'deepseek-v4-flash',
+        to: 'deepseek-ai/deepseek-v4-flash',
+        source: 'auto_discovered',
+        updated_at: ''
+      },
+      {
+        enabled: true,
+        from: 'deepseek-v4-pro',
+        to: 'DeepSeek-V4-Pro',
+        source: 'auto_discovered',
+        updated_at: ''
+      },
+      {
+        enabled: true,
+        from: 'manual-upstream',
+        to: 'manual-alias',
+        source: 'manual',
+        updated_at: ''
       }
     ])
   })
