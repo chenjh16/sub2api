@@ -93,6 +93,9 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	}
 	if account.Platform == PlatformGrok {
 		s.handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		if isGrokContentPolicyRejection(resp.StatusCode, respBody) {
+			return nil
+		}
 	}
 	if isOpenAIContextWindowError(upstreamMsg, respBody) {
 		return nil
