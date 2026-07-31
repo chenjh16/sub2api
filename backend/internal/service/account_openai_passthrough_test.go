@@ -49,6 +49,21 @@ func TestAccount_IsOpenAIPassthroughEnabled(t *testing.T) {
 	})
 }
 
+func TestAccount_IsModelSupported_OpenAIPassthroughBypassesModelSelection(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_selection_enabled": true,
+		},
+		Extra: map[string]any{
+			"openai_passthrough": true,
+		},
+	}
+
+	require.True(t, account.IsModelSupported("vendor/custom-model"))
+}
+
 func TestAccount_IsOpenAIOAuthPassthroughEnabled(t *testing.T) {
 	t.Run("仅OAuth类型允许返回开启", func(t *testing.T) {
 		oauthAccount := &Account{
