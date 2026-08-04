@@ -202,6 +202,9 @@ func (s *OpenAIGatewayService) shouldFailoverGrokUpstreamError(statusCode int, r
 	case GrokFailureFreeUsage, GrokFailureEmptyUpstream, GrokFailureBilling, GrokFailureModelCapacity:
 		return decision.ShouldFailover
 	}
+	if statusCode >= http.StatusInternalServerError {
+		return true
+	}
 	return s.shouldFailoverUpstreamError(statusCode)
 }
 
