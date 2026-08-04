@@ -195,6 +195,9 @@ func (s *OpenAIGatewayService) shouldFailoverGrokUpstreamError(statusCode int, r
 	if isGrokContentPolicyRejection(statusCode, responseBody) {
 		return false
 	}
+	if statusCode >= http.StatusInternalServerError {
+		return true
+	}
 	return s.shouldFailoverUpstreamError(statusCode)
 }
 
