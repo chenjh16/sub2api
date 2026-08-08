@@ -256,6 +256,17 @@ func TestGatewayFailoverPolicy_DisablesStructured400Failover(t *testing.T) {
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
+func TestGatewayFailoverPolicy_DisablesHTTP5xxFailover(t *testing.T) {
+	settings := *DefaultGatewayFailoverPolicySettings()
+	updateGatewayFailoverRule(t, &settings, "openai_http_5xx_threshold", func(rule *GatewayFailoverRule) {
+		rule.Enabled = false
+	})
+	svc := newOpenAIFailoverPolicyTestService(t, settings)
+	body := []byte(`{"error":{"message":"temporary upstream failure"}}`)
+
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadGateway, "temporary upstream failure", body))
+}
+
 func TestGatewayFailoverPolicy_RequestTooLargeTierLimitFailsOverAndClearsSession(t *testing.T) {
 	settings := *DefaultGatewayFailoverPolicySettings()
 	updateGatewayFailoverRule(t, &settings, "openai_request_too_large_tier_limit", func(rule *GatewayFailoverRule) {
