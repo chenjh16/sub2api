@@ -177,6 +177,27 @@ func TestGrokNonFailoverDoesNotApplyGenericTempUnschedulablePolicy(t *testing.T)
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
+func TestGrokFreeUsageBodyFailsOverThroughSharedHTTPErrorPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &grokQuotaAccountRepo{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	account := &Account{ID: 5110, Platform: PlatformGrok, Type: AccountTypeOAuth}
+	body := []byte(`{"error":{"code":"subscription:free-usage-exhausted","message":"free usage exhausted for model grok-4.5"}}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	resp := &http.Response{StatusCode: http.StatusBadRequest, Header: http.Header{}}
+
+	got := svc.failoverOpenAIUpstreamHTTPError(
+		context.Background(), c, account, resp, body, "free usage exhausted", "grok-4.5",
+	)
+
+	require.NotNil(t, got)
+	require.Equal(t, http.StatusBadRequest, got.StatusCode)
+	require.Zero(t, repo.tempUnschedCalls)
+	require.True(t, isGrokModelQuotaBlocked(account.ID, "grok-4.5", time.Now()))
+}
+
 func TestGrokContentPolicy403SharedErrorFallbackDoesNotMutate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"error":{"code":"content_filter","message":"prohibited content"}}`)
