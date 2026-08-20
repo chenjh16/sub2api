@@ -455,13 +455,13 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if account.RoutesProtocolByInbound() {
 		switch account.GetAPIProtocol() {
 		case APIProtocolAdaptive:
-			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
+			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt, promptLocale)
 		case APIProtocolResponses:
-			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
+			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode), promptLocale)
 		case APIProtocolChatCompletions:
-			return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
+			return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt, promptLocale)
 		case APIProtocolAnthropic:
-			return s.testCNProviderAnthropicConnection(c, account, modelID)
+			return s.testCNProviderAnthropicConnection(c, account, modelID, prompt, promptLocale)
 		}
 	}
 
@@ -483,7 +483,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 
 	// 按模型分流的多模型聚合平台（OpenCode、Command Code 等）。
 	if account.routesByModel() {
-		return s.testModelRoutedAccountConnection(c, account, modelID, prompt)
+		return s.testModelRoutedAccountConnection(c, account, modelID, prompt, promptLocale)
 	}
 
 	if account.IsTypeSafe() {
@@ -501,7 +501,8 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 // overrides that catalog. Falling through to the generic Claude tester used
 // credentials.base_url + /v1/messages?beta=true, which 404s as HTML on
 // https://opencode.ai/zen/go/v1/v1/messages.
-func (s *AccountTestService) testModelRoutedAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+func (s *AccountTestService) testModelRoutedAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, locale ...string) error {
+	promptLocale := firstAccountTestLocale(locale)
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = account.providerDefaultTestModel()
@@ -520,15 +521,15 @@ func (s *AccountTestService) testModelRoutedAccountConnection(c *gin.Context, ac
 	}
 	switch protocol {
 	case APIProtocolAnthropic:
-		return s.testCNProviderAnthropicConnection(c, account, testModelID)
+		return s.testCNProviderAnthropicConnection(c, account, testModelID, prompt, promptLocale)
 	case APIProtocolResponses:
-		return s.testModelRoutedResponsesConnection(c, account, testModelID)
+		return s.testModelRoutedResponsesConnection(c, account, testModelID, prompt, promptLocale)
 	default:
-		return s.testCNProviderChatCompletionsConnection(c, account, testModelID, prompt)
+		return s.testCNProviderChatCompletionsConnection(c, account, testModelID, prompt, promptLocale)
 	}
 }
 
-func (s *AccountTestService) testModelRoutedResponsesConnection(c *gin.Context, account *Account, testModelID string) error {
+func (s *AccountTestService) testModelRoutedResponsesConnection(c *gin.Context, account *Account, testModelID string, prompt string, locale string) error {
 	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 	if authToken == "" {
 		return s.sendErrorAndEnd(c, "No API key available")
@@ -539,10 +540,10 @@ func (s *AccountTestService) testModelRoutedResponsesConnection(c *gin.Context, 
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
-	return s.testCNProviderAdaptiveResponsesConnection(c, account, testModelID, authToken)
+	return s.testCNProviderAdaptiveResponsesConnection(c, account, testModelID, authToken, prompt, locale)
 }
 
-func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Context, account *Account, modelID string, prompt string, locale string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = account.providerDefaultTestModel()
@@ -563,7 +564,7 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 	}
 
-	return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, normalizedBaseURL, authToken)
+	return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, locale, normalizedBaseURL, authToken)
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection
