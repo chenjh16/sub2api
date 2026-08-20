@@ -6733,10 +6733,10 @@ watch(
     }
     if (!supportsMessagesDispatchPlatform(newVal)) {
       resetMessagesDispatchFormState(createForm);
+      createForm.openai_default_service_tier = "";
     }
     if (!supportsLivePlatform(newVal)) {
       createForm.allow_live = false;
-      createForm.openai_default_service_tier = "";
     }
     if (!isProfitControlPlatform(newVal)) {
       createForm.profit_control_enabled = false;
@@ -6791,10 +6791,10 @@ watch(
     }
     if (!supportsMessagesDispatchPlatform(newVal)) {
       resetMessagesDispatchFormState(editForm);
+      editForm.openai_default_service_tier = "";
     }
     if (!supportsLivePlatform(newVal)) {
       editForm.allow_live = false;
-      editForm.openai_default_service_tier = "";
     }
     if (!isProfitControlPlatform(newVal)) {
       editForm.profit_control_enabled = false;
