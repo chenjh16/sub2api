@@ -304,6 +304,14 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     })
   })
 
+  it('uses a provider-neutral API key hint for CN platforms', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Kimi')
+
+    expect(wrapper.text()).toContain('admin.accounts.upstream.apiKeyHint')
+    expect(wrapper.text()).not.toContain('admin.accounts.apiKeyHint')
+  })
+
   it('uses the edited adaptive Chat endpoint when previewing upstream models', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'Kimi')
