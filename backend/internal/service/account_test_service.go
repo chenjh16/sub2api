@@ -365,13 +365,13 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if account.IsCNProvider() {
 		switch account.GetAPIProtocol() {
 		case APIProtocolAdaptive:
-			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
+			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt, promptLocale)
 		case APIProtocolResponses:
-			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
+			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode), promptLocale)
 		case APIProtocolChatCompletions:
-			return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
+			return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt, promptLocale)
 		case APIProtocolAnthropic:
-			return s.testCNProviderAnthropicConnection(c, account, modelID)
+			return s.testCNProviderAnthropicConnection(c, account, modelID, prompt, promptLocale)
 		}
 	}
 
@@ -394,7 +394,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	return s.testClaudeAccountConnection(c, account, modelID, prompt, promptLocale)
 }
 
-func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Context, account *Account, modelID string, prompt string, locale string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = openai.DefaultTestModel
@@ -412,7 +412,7 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 	}
 
-	return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, normalizedBaseURL, authToken)
+	return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, locale, normalizedBaseURL, authToken)
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection
