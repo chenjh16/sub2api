@@ -425,13 +425,13 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if account.IsCNProvider() {
 		switch account.GetAPIProtocol() {
 		case APIProtocolAdaptive:
-			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
+			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt, promptLocale)
 		case APIProtocolResponses:
-			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
+			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode), promptLocale)
 		case APIProtocolChatCompletions:
-			return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
+			return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt, promptLocale)
 		case APIProtocolAnthropic:
-			return s.testCNProviderAnthropicConnection(c, account, modelID)
+			return s.testCNProviderAnthropicConnection(c, account, modelID, prompt, promptLocale)
 		}
 	}
 
@@ -452,7 +452,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.IsOpenCodeGo() {
-		return s.testOpenCodeGoAccountConnection(c, account, modelID, prompt)
+		return s.testOpenCodeGoAccountConnection(c, account, modelID, prompt, promptLocale)
 	}
 
 	return s.testClaudeAccountConnection(c, account, modelID, prompt, promptLocale)
@@ -465,7 +465,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 // overrides that catalog. Falling through to the generic Claude tester used
 // credentials.base_url + /v1/messages?beta=true, which 404s as HTML on
 // https://opencode.ai/zen/go/v1/v1/messages.
-func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, locale string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = DefaultOpenCodeGoTestModel
@@ -483,7 +483,7 @@ func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, acc
 	case APIProtocolResponses:
 		return s.testOpenCodeGoResponsesConnection(c, account, testModelID)
 	default:
-		return s.testCNProviderChatCompletionsConnection(c, account, testModelID, prompt)
+		return s.testCNProviderChatCompletionsConnection(c, account, testModelID, prompt, locale)
 	}
 }
 
@@ -501,7 +501,7 @@ func (s *AccountTestService) testOpenCodeGoResponsesConnection(c *gin.Context, a
 	return s.testCNProviderAdaptiveResponsesConnection(c, account, testModelID, authToken)
 }
 
-func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Context, account *Account, modelID string, prompt string, locale string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = openai.DefaultTestModel
@@ -519,7 +519,7 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 	}
 
-	return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, normalizedBaseURL, authToken)
+	return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, locale, normalizedBaseURL, authToken)
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection
