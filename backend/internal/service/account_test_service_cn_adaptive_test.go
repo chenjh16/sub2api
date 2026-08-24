@@ -235,7 +235,14 @@ func TestAccountTestService_AnthropicProtocolProbesNativeEndpointWithoutBetaQuer
 	svc, upstream := adaptiveCNAccountTestService(account, adaptiveCNAnthropicTestResponse())
 	c, recorder := newTestContext()
 
-	err := svc.TestAccountConnection(c, account.ID, "glm-4.7", "", AccountTestModeDefault)
+	err := svc.TestAccountConnection(
+		c,
+		account.ID,
+		"glm-4.7",
+		"",
+		AccountTestModeDefault,
+		AccountTestOptions{Locale: "zh-CN"},
+	)
 
 	require.NoError(t, err)
 	require.Len(t, upstream.requests, 1)
@@ -245,6 +252,7 @@ func TestAccountTestService_AnthropicProtocolProbesNativeEndpointWithoutBetaQuer
 	require.Empty(t, req.URL.RawQuery)
 	require.Equal(t, "sk-anthropic-test", req.Header.Get("x-api-key"))
 	require.Equal(t, "2023-06-01", req.Header.Get("anthropic-version"))
+	require.Equal(t, defaultTextTestPromptZH, gjson.GetBytes(upstream.bodies[0], "messages.0.content.0.text").String())
 	require.Contains(t, recorder.Body.String(), `"type":"test_complete"`)
 }
 
