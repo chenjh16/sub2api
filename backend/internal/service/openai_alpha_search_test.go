@@ -318,7 +318,7 @@ func TestForwardAlphaSearchReturnsFailoverBeforeWriting(t *testing.T) {
 	require.Empty(t, failoverErr.Reason)
 	require.Zero(t, failoverErr.ClientStatusCode)
 	require.Empty(t, failoverErr.ClientMessage)
-	require.Nil(t, failoverErr.ResponseHeaders)
+	require.Equal(t, "application/json", failoverErr.ResponseHeaders.Get("Content-Type"))
 	require.Equal(t, openAIPlatformAlphaSearchURL, upstream.lastReq.URL.String())
 	require.False(t, c.Writer.Written())
 	require.Empty(t, recorder.Body.String())

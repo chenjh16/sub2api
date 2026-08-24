@@ -166,8 +166,6 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 			addOpenAIUsage(&bridgeUsage, usage)
 		}
 	}
-	serviceTier := extractOpenAIServiceTierFromBody(upstreamBody)
-
 	if clientStream {
 		var usageErr error
 		upstreamBody, usageErr = ensureOpenAIChatStreamUsage(upstreamBody)
