@@ -3701,6 +3701,34 @@ func TestFailoverOpenAIUpstreamHTTPErrorUsesOnlyGrokRateLimitPolicy(t *testing.T
 	require.Zero(t, repo.tempUnschedCalls)
 }
 
+func TestFailoverOpenAIUpstreamHTTPErrorPreservesGrokCapacityRetryMetadata(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &grokQuotaAccountRepo{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	account := &Account{ID: 71, Platform: PlatformGrok, Type: AccountTypeOAuth}
+	resp := &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	startedAt := time.Now()
+
+	failoverErr := svc.failoverOpenAIUpstreamHTTPError(
+		context.Background(), c, account, resp,
+		[]byte(`{"error":{"message":"The model is currently at capacity due to high demand"}}`),
+		"The model is currently at capacity due to high demand", "grok-4.6",
+	)
+
+	require.NotNil(t, failoverErr)
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.RequestScopedTransient)
+	require.Equal(t, 500*time.Millisecond, failoverErr.SameAccountRetryDelay)
+	require.WithinDuration(t, startedAt.Add(30*time.Second), failoverErr.SameAccountRetryDeadline, 2*time.Second)
+	require.Equal(t, 1, failoverErr.SameAccountRetryMax)
+}
+
 func TestPatchGrokResponsesBody_StripsReasoningContentNull(t *testing.T) {
 	t.Parallel()
 

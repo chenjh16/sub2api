@@ -14,7 +14,13 @@ describe('GroupsView Composite route options', () => {
 
   it('clears OpenAI-only default service tier when create form switches to Composite', () => {
     expect(groupsViewSource).toMatch(
-      /if \(newVal !== "openai"\) \{\s+resetMessagesDispatchFormState\(createForm\);\s+createForm\.openai_default_service_tier = "";/
+      /if \(newVal !== "openai"\) \{\s+createForm\.openai_default_service_tier = "";/
+    )
+  })
+
+  it('clears OpenAI-only default service tier when edit form switches to Composite', () => {
+    expect(groupsViewSource).toMatch(
+      /if \(newVal !== "openai"\) \{\s+editForm\.openai_default_service_tier = "";/
     )
   })
 })
