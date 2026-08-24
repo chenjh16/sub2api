@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 
 import AccountsView from '../AccountsView.vue'
 
@@ -56,6 +57,7 @@ const DataTableStub = {
 function mountView() {
   return mount(AccountsView, {
     global: {
+      plugins: [createPinia()],
       stubs: {
         AppLayout: { template: '<div><slot /></div>' },
         TablePageLayout: {

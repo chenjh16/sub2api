@@ -6706,6 +6706,8 @@ watch(
     }
     if (!supportsMessagesDispatchPlatform(newVal)) {
       resetMessagesDispatchFormState(createForm);
+    }
+    if (newVal !== "openai") {
       createForm.openai_default_service_tier = "";
     }
     if (!supportsLivePlatform(newVal)) {
@@ -6764,6 +6766,8 @@ watch(
     }
     if (!supportsMessagesDispatchPlatform(newVal)) {
       resetMessagesDispatchFormState(editForm);
+    }
+    if (newVal !== "openai") {
       editForm.openai_default_service_tier = "";
     }
     if (!supportsLivePlatform(newVal)) {
@@ -6815,23 +6819,6 @@ watch(
     resetDisabledBatchImagePricing(editForm);
   },
 );
-
-watch(
-  () => editForm.platform,
-  (newVal) => {
-    if (!['anthropic', 'antigravity'].includes(newVal)) {
-      editForm.fallback_group_id_on_invalid_request = null
-    }
-    if (!supportsMessagesDispatchPlatform(newVal)) {
-      editForm.allow_messages_dispatch = false
-      editForm.default_mapped_model = ''
-      editForm.openai_default_service_tier = ''
-    }
-    if (!supportsLivePlatform(newVal)) {
-      editForm.allow_live = false
-    }
-  }
-)
 
 // 点击外部关闭账号搜索下拉框
 const handleClickOutside = (event: MouseEvent) => {
