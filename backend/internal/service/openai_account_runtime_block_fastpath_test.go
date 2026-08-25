@@ -320,6 +320,45 @@ func TestOpenAIHTTP429StillUsesQuotaResetHeaders(t *testing.T) {
 	require.Greater(t, time.Until(blockedUntil), 6*24*time.Hour, "real HTTP 429 must retain the upstream quota reset")
 }
 
+func TestOpenAIExhaustedQuota429PausesOAuthBeforeGlobalFailoverRule(t *testing.T) {
+	settings := GatewayFailoverPolicySettings{
+		MatchMode: "first",
+		Rules: []GatewayFailoverRule{
+			{
+				ID:       "custom_429_failover_without_cooldown",
+				Name:     "Custom 429 failover without cooldown",
+				Enabled:  true,
+				Priority: 1,
+				Event:    GatewayFailoverRuleEventHTTPResponse,
+				Match: GatewayFailoverRuleMatch{
+					StatusCodes: []int{http.StatusTooManyRequests},
+				},
+				Action: GatewayFailoverRuleAction{
+					Failover:      true,
+					CooldownScope: GatewayFailoverCooldownScopeNone,
+				},
+			},
+		},
+	}
+	svc := newOpenAIFailoverPolicyTestService(t, settings)
+	account := &Account{ID: 424, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "100")
+	headers.Set("x-codex-primary-reset-after-seconds", "3600")
+	headers.Set("x-codex-primary-window-minutes", "300")
+
+	svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		headers,
+		[]byte(`{"error":{"code":"rate_limit_exceeded","message":"quota exhausted"}}`),
+		"gpt-5.4",
+	)
+
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
 func TestOpenAI429RetryDelayHonorsBoundedRetryAfter(t *testing.T) {
 	deadline := time.Now().Add(openAIOAuth429RetryWindow)
 	require.Equal(t, openAIOAuth429RetryDelay, openAIOAuth429SameAccountRetryDelay(nil, deadline))

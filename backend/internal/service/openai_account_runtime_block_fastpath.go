@@ -160,6 +160,20 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if s == nil || account == nil {
 		return false
 	}
+	// Spark has a model-scoped quota window. Persist it before any account or
+	// global policy can return, and do not let the generic OAuth 429 path block
+	// every model on the same account.
+	if statusCode == http.StatusTooManyRequests && s.rateLimitService != nil && len(canonicalModel) > 0 &&
+		s.rateLimitService.HandleOpenAICodexSparkRateLimit(stateCtx, account, canonicalModel[0], statusCode, headers, responseBody) {
+		return false
+	}
+	// Quota exhaustion is provider account state, not an administrator-defined
+	// failover action. Record it before account/global policy early returns so a
+	// matching 429 rule cannot leave an exhausted OAuth account schedulable.
+	// Transient OAuth 429s only open the bounded same-account retry window here.
+	if statusCode == http.StatusTooManyRequests {
+		s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody)
+	}
 	// Team 联动熔断必须先于 model-not-found 与账户级临时不可调度规则的早退。
 	if s.rateLimitService != nil {
 		s.rateLimitService.maybeHandleOpenAITeamLinkedError(stateCtx, account, statusCode, responseBody)
@@ -190,13 +204,6 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		if decision := s.decideOpenAIFailoverRule(ctx, event); decision != nil {
 			return s.applyOpenAIFailoverRuleSideEffects(ctx, account, event, decision.Rule)
 		}
-	}
-	if statusCode == http.StatusTooManyRequests && s.rateLimitService != nil && len(canonicalModel) > 0 &&
-		s.rateLimitService.HandleOpenAICodexSparkRateLimit(stateCtx, account, canonicalModel[0], statusCode, headers, responseBody) {
-		return false
-	}
-	if statusCode == http.StatusTooManyRequests {
-		s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody)
 	}
 	if s.rateLimitService == nil {
 		return false
