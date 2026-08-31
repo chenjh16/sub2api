@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +15,7 @@ type accountModelAutoRefreshRepoStub struct {
 	AccountRepository
 	account *Account
 	updated *Account
+	extra   map[string]any
 }
 
 func (s *accountModelAutoRefreshRepoStub) GetByID(context.Context, int64) (*Account, error) {
@@ -27,6 +31,11 @@ func (s *accountModelAutoRefreshRepoStub) Update(_ context.Context, account *Acc
 	updated := *account
 	updated.Credentials = shallowCopyMap(account.Credentials)
 	s.updated = &updated
+	return nil
+}
+
+func (s *accountModelAutoRefreshRepoStub) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
+	s.extra = shallowCopyMap(updates)
 	return nil
 }
 
@@ -179,4 +188,51 @@ func TestPersistAutoRefreshSkipsWriteAfterAdminDisablesIt(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Nil(t, repo.updated)
+}
+
+func TestRefreshOneAccountPersistsUpstreamCapabilityMetadata(t *testing.T) {
+	account := &Account{
+		ID:       10,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			accountModelAutoRefreshEnabledKey: true,
+			"api_key":                         "test-key",
+			"base_url":                        "https://provider.example/v1",
+		},
+	}
+	repo := &accountModelAutoRefreshRepoStub{account: account}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{
+			"data": [{
+				"id": "gpt-image-2",
+				"reasoning": false,
+				"input_modalities": ["text"],
+				"context_window": 128000,
+				"max_output_tokens": 8192
+			}]
+		}`)),
+	}}
+	testSvc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg:          upstreamModelSyncTestConfig(),
+	}
+	svc := &AccountModelAutoRefreshService{
+		accountRepo:    repo,
+		accountTestSvc: testSvc,
+	}
+
+	svc.refreshOneAccount(
+		context.Background(),
+		account,
+		accountModelAutoRefreshConfig{Enabled: true},
+		time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC),
+	)
+
+	require.Contains(t, repo.extra, UpstreamModelMetadataExtraKey)
+	require.NotNil(t, repo.updated)
+	require.Equal(t, []string{"gpt-image-2"}, repo.updated.Credentials["model_candidates"])
 }
