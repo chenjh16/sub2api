@@ -122,14 +122,18 @@ const ModelWhitelistSelectorStub = defineComponent({
       type: Array,
       default: () => [],
     },
+    enabledModels: {
+      type: Array,
+      default: () => [],
+    },
     platform: String,
     syncCredentials: Object,
   },
-  emits: ['update:modelValue', 'upstream-synced'],
+  emits: ['update:modelValue', 'update:enabledModels', 'upstream-synced'],
   template: `<button
     type="button"
     data-testid="model-whitelist-selector"
-    @click="$emit('update:modelValue', ['public-glm']); $emit('upstream-synced')"
+    @click="$emit('update:modelValue', ['public-glm']); $emit('update:enabledModels', ['public-glm']); $emit('upstream-synced')"
   >models</button>`,
 })
 
