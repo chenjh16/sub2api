@@ -45,6 +45,16 @@ vi.mock('@/api/admin/accounts', () => ({
   }
 }))
 
+vi.mock('@/api/admin/settings', () => ({
+  settingsAPI: {
+    getModelMappingAutomationSettings: vi.fn().mockResolvedValue({
+      rules: [],
+      batch_test_concurrency: 3
+    }),
+    updateModelMappingAutomationSettings: vi.fn()
+  }
+}))
+
 vi.mock('@/composables/useClipboard', () => ({
   useClipboard: () => ({
     copyToClipboard
@@ -116,6 +126,25 @@ describe('ModelWhitelistSelector', () => {
 
     expect(wrapper.emitted('update:modelValue')).toEqual([[['gpt-5.6-sol']]])
     expect(copyToClipboard).not.toHaveBeenCalled()
+  })
+
+  it('keeps test and remove as the rightmost adjacent model actions', () => {
+    const wrapper = mountSelector({
+      modelValue: ['gpt-5.6-sol'],
+      enabledModels: ['gpt-5.6-sol'],
+      enableModelSelection: true,
+      enableModelTesting: true,
+      accountId: 46
+    })
+
+    const chip = wrapper.get('[data-testid="selected-model-chip"]')
+    const actions = chip.findAll('button').map(button => button.attributes('aria-label'))
+
+    expect(actions).toEqual([
+      'admin.accounts.disableModel',
+      'admin.accounts.testThisModel',
+      'admin.accounts.removeModel'
+    ])
   })
 
   it('warns when model IDs sync but capability metadata is incomplete', async () => {

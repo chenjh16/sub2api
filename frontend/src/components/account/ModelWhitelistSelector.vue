@@ -10,6 +10,7 @@
           <span
             v-for="model in modelValue"
             :key="model"
+            data-testid="selected-model-chip"
             :class="[
               'inline-flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
               enableModelSelection && !isModelEnabled(model)
@@ -23,10 +24,30 @@
             </span>
             <span class="ml-auto inline-flex shrink-0 items-center justify-end gap-0.5">
               <button
+                v-if="enableModelSelection"
+                type="button"
+                @click.stop="toggleModelEnabled(model)"
+                :title="modelEnableTitle(model)"
+                :aria-label="modelEnableTitle(model)"
+                :class="[
+                  'shrink-0 rounded-full p-0.5 transition-colors hover:bg-gray-200 dark:hover:bg-dark-500',
+                  isModelEnabled(model)
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
+                ]"
+              >
+                <Icon
+                  :name="isModelEnabled(model) ? 'checkCircle' : 'circle'"
+                  size="sm"
+                  :stroke-width="2.15"
+                />
+              </button>
+              <button
                 v-if="canTestModels"
                 type="button"
                 @click.stop="testSingleModel(model)"
                 :title="t('admin.accounts.testThisModel')"
+                :aria-label="t('admin.accounts.testThisModel')"
                 :class="[
                   'shrink-0 rounded-full p-0.5 transition-colors hover:bg-gray-200 dark:hover:bg-dark-500',
                   modelTestButtonClass(model)
@@ -47,24 +68,6 @@
                 class="shrink-0 rounded-full hover:bg-gray-200 dark:hover:bg-dark-500"
               >
                 <Icon name="x" size="xs" class="h-3.5 w-3.5" :stroke-width="2" />
-              </button>
-              <button
-                v-if="enableModelSelection"
-                type="button"
-                @click.stop="toggleModelEnabled(model)"
-                :title="modelEnableTitle(model)"
-                :class="[
-                  'shrink-0 rounded-full p-0.5 transition-colors hover:bg-gray-200 dark:hover:bg-dark-500',
-                  isModelEnabled(model)
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
-                ]"
-              >
-                <Icon
-                  :name="isModelEnabled(model) ? 'checkCircle' : 'circle'"
-                  size="sm"
-                  :stroke-width="2.15"
-                />
               </button>
             </span>
           </span>

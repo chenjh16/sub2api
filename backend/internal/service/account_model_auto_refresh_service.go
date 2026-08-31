@@ -174,11 +174,16 @@ func (s *AccountModelAutoRefreshService) refreshOneAccount(ctx context.Context, 
 		return
 	}
 
-	models, err := s.accountTestSvc.FetchUpstreamSupportedModels(ctx, account)
+	catalog, err := s.accountTestSvc.SyncUpstreamModelCatalog(ctx, account)
 	if err != nil {
 		s.persistAutoRefreshFailure(ctx, account.ID, fmt.Sprintf("sync upstream models: %v", err), now)
 		return
 	}
+	if catalog == nil {
+		s.persistAutoRefreshFailure(ctx, account.ID, "upstream returned an empty model catalog", now)
+		return
+	}
+	models := catalog.Models
 	models = normalizeAccountModelAutoRefreshModels(models)
 	if len(models) == 0 {
 		s.persistAutoRefreshFailure(ctx, account.ID, "upstream returned no supported models", now)
