@@ -1638,7 +1638,11 @@
             {{ t("admin.groups.openaiMessages.title") }}
           </h4>
 
-          <div class="mb-3">
+          <div
+            v-if="createForm.platform === 'openai'"
+            class="mb-3"
+            data-testid="create-openai-default-service-tier"
+          >
             <label class="input-label">{{
               t("admin.groups.openaiMessages.defaultServiceTier")
             }}</label>
@@ -3315,7 +3319,11 @@
             {{ t("admin.groups.openaiMessages.title") }}
           </h4>
 
-          <div class="mb-3">
+          <div
+            v-if="editForm.platform === 'openai'"
+            class="mb-3"
+            data-testid="edit-openai-default-service-tier"
+          >
             <label class="input-label">{{
               t("admin.groups.openaiMessages.defaultServiceTier")
             }}</label>
