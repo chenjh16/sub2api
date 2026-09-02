@@ -23,4 +23,13 @@ describe('GroupsView Composite route options', () => {
       /if \(newVal !== "openai"\) \{\s+editForm\.openai_default_service_tier = "";/
     )
   })
+
+  it('only renders default service tier controls for concrete OpenAI groups', () => {
+    expect(groupsViewSource).toMatch(
+      /v-if="createForm\.platform === 'openai'"\s+class="mb-3"\s+data-testid="create-openai-default-service-tier"/
+    )
+    expect(groupsViewSource).toMatch(
+      /v-if="editForm\.platform === 'openai'"\s+class="mb-3"\s+data-testid="edit-openai-default-service-tier"/
+    )
+  })
 })
