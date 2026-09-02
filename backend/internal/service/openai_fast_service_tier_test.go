@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -494,6 +495,90 @@ func TestForward_ResponsesServiceTierOmittedStaysOmitted(t *testing.T) {
 	require.False(t, gjson.GetBytes(upstream.lastBody, "service_tier").Exists(),
 		"omitted service_tier must stay omitted")
 	require.Nil(t, result.ServiceTier)
+}
+
+func TestForward_ResponsesGroupTierPrecedence(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name        string
+		body        string
+		defaultTier string
+		forceFast   bool
+		wantTier    string
+	}{
+		{
+			name:        "group default fills an omitted tier",
+			body:        `{"model":"gpt-5.5","input":"hello","stream":false}`,
+			defaultTier: "flex",
+			wantTier:    "flex",
+		},
+		{
+			name:        "explicit client tier wins over group default",
+			body:        `{"model":"gpt-5.5","service_tier":"auto","input":"hello","stream":false}`,
+			defaultTier: "flex",
+			wantTier:    "auto",
+		},
+		{
+			name:        "group force fast overrides explicit client tier",
+			body:        `{"model":"gpt-5.5","service_tier":"flex","input":"hello","stream":false}`,
+			defaultTier: "default",
+			forceFast:   true,
+			wantTier:    "priority",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			body := []byte(tt.body)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			group := &Group{
+				ID:                       77,
+				Platform:                 PlatformOpenAI,
+				Status:                   StatusActive,
+				Hydrated:                 true,
+				ForceOpenAIFast:          tt.forceFast,
+				OpenAIDefaultServiceTier: tt.defaultTier,
+			}
+			c.Set("api_key", &APIKey{ID: 88, Group: group})
+			ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(
+					`{"id":"resp_group_tier","object":"response","status":"completed","model":"gpt-5.5","output":[],"usage":{"input_tokens":1,"output_tokens":1}}`,
+				)),
+			}}
+			svc := &OpenAIGatewayService{
+				cfg:            &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+				httpUpstream:   upstream,
+				settingService: NewSettingService(&openAIFastPolicyRepoStub{values: map[string]string{}}, &config.Config{}),
+			}
+			account := &Account{
+				ID:          7,
+				Name:        "openai-apikey",
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Concurrency: 1,
+				Credentials: map[string]any{"api_key": "sk-test"},
+				Extra:       map[string]any{"openai_responses_supported": true},
+				Status:      StatusActive,
+				Schedulable: true,
+			}
+
+			result, err := svc.Forward(ctx, c, account, body)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, tt.wantTier, gjson.GetBytes(upstream.lastBody, "service_tier").String())
+			require.NotNil(t, result.ServiceTier)
+			require.Equal(t, tt.wantTier, *result.ServiceTier)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

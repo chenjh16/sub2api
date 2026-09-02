@@ -1153,7 +1153,7 @@ export default {
         defaultServiceTier: '默认 service_tier',
         defaultServiceTierOff: '关闭自动注入',
         defaultServiceTierHint:
-          '未显式传 service_tier 的 OpenAI Responses、Chat Completions 与 Realtime 请求会自动使用此值；客户端显式传入时保持不变。',
+          '未显式传 service_tier 的 OpenAI Responses、Chat Completions 与 Realtime 请求会自动使用此值；客户端显式传入时保持不变，但开启“强制 OpenAI Fast”后会统一覆盖为 priority。',
         allowDispatch: '允许 /v1/messages 调度',
         allowDispatchHint: '启用后，此 OpenAI 分组的 API Key 可以通过 /v1/messages 端点调度请求',
         familyMappingTitle: '系列默认映射',
