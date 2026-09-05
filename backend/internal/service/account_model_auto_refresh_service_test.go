@@ -203,13 +203,13 @@ func TestRefreshOneAccountPersistsUpstreamCapabilityMetadata(t *testing.T) {
 	}
 	repo := &accountModelAutoRefreshRepoStub{account: account}
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body: io.NopCloser(strings.NewReader(`{
-			"data": [{
-				"id": "gpt-image-2",
-				"reasoning": false,
-				"input_modalities": ["text"],
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{
+				"data": [{
+					"id": "provider-chat-model",
+					"reasoning": false,
+					"input_modalities": ["text"],
 				"context_window": 128000,
 				"max_output_tokens": 8192
 			}]
@@ -234,5 +234,5 @@ func TestRefreshOneAccountPersistsUpstreamCapabilityMetadata(t *testing.T) {
 
 	require.Contains(t, repo.extra, UpstreamModelMetadataExtraKey)
 	require.NotNil(t, repo.updated)
-	require.Equal(t, []string{"gpt-image-2"}, repo.updated.Credentials["model_candidates"])
+	require.Equal(t, []string{"provider-chat-model"}, repo.updated.Credentials["model_candidates"])
 }

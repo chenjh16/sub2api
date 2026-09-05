@@ -4707,6 +4707,7 @@ const subscriptionTypeOptions = computed(() => [
 const openAIServiceTierOptions = computed(() => [
   { value: "", label: t("admin.groups.openaiMessages.defaultServiceTierOff") },
   { value: "priority", label: "priority (fast)" },
+  { value: "ultrafast", label: "ultrafast" },
   { value: "flex", label: "flex" },
   { value: "auto", label: "auto" },
   { value: "default", label: "default" },
