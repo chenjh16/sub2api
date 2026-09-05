@@ -18,6 +18,12 @@ func TestApplyOpenAIGroupDefaultServiceTierToBody(t *testing.T) {
 	require.Equal(t, "priority", applied)
 	require.Equal(t, "priority", gjson.GetBytes(body, "service_tier").String())
 
+	group.OpenAIDefaultServiceTier = "ultrafast"
+	body, applied, err = applyOpenAIGroupDefaultServiceTierToBody([]byte(`{"model":"gpt-5.6-sol"}`), group)
+	require.NoError(t, err)
+	require.Equal(t, "ultrafast", applied)
+	require.Equal(t, "ultrafast", gjson.GetBytes(body, "service_tier").String())
+
 	body, applied, err = applyOpenAIGroupDefaultServiceTierToBody([]byte(`{"model":"gpt-5.4","service_tier":"flex"}`), group)
 	require.NoError(t, err)
 	require.Empty(t, applied)
