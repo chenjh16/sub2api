@@ -51,6 +51,14 @@ vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({ token: 'test-token', isSimpleMode: false })
 }))
 
+vi.mock('@/stores/accountPageUi', () => ({
+  useAccountPageUiStore: () => ({
+    toolbarCollapsed: false,
+    setToolbarCollapsed: vi.fn(),
+    toggleToolbarCollapsed: vi.fn()
+  })
+}))
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return { ...actual, useI18n: () => ({ t: (key: string) => key }) }
