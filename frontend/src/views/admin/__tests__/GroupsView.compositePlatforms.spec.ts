@@ -32,4 +32,8 @@ describe('GroupsView Composite route options', () => {
       /v-if="editForm\.platform === 'openai'"\s+class="mb-3"\s+data-testid="edit-openai-default-service-tier"/
     )
   })
+
+  it('offers the upstream ultrafast tier as an OpenAI group default', () => {
+    expect(groupsViewSource).toContain('{ value: "ultrafast", label: "ultrafast" }')
+  })
 })
