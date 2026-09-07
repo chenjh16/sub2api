@@ -81,6 +81,18 @@ func (s *OpenAIGatewayService) decideOpenAIUpstreamHTTPFailover(
 	upstreamMsg string,
 	upstreamBody []byte,
 ) *openAIFailoverRuleDecision {
+	// A missing model is account/provider availability in a managed
+	// OpenAI-compatible pool. Keep this upstream system rule ahead of editable
+	// policy entries so administrators cannot accidentally disable account
+	// failover for a provider-specific model gap.
+	if s != nil && s.accountRepo != nil && account != nil && account.IsOpenAICompatible() &&
+		statusCode == http.StatusBadRequest && isOpenAICompatibleModelNotFound400(upstreamBody) {
+		return &openAIFailoverRuleDecision{
+			Failover:     true,
+			SystemReason: "model_not_found",
+		}
+	}
+
 	event := openAIFailoverRuleEvent{
 		Event:           GatewayFailoverRuleEventHTTPResponse,
 		StatusCode:      statusCode,
