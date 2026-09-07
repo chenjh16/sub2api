@@ -27,7 +27,7 @@ func TestShouldFailoverUpstreamError_ExistingCodesStillWorkThroughPolicy(t *test
 	// low-level status helper bypass an administrator disabling that rule.
 	for _, code := range []int{500, 502, 503, 504} {
 		assert.False(t, svc.shouldFailoverUpstreamError(code), "status %d should remain policy-controlled", code)
-		assert.True(t, svc.shouldFailoverOpenAIUpstreamResponse(code, "temporary upstream failure", []byte(`{"error":{"message":"temporary upstream failure"}}`)),
+		assert.True(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), code, "temporary upstream failure", []byte(`{"error":{"message":"temporary upstream failure"}}`)),
 			"default gateway policy should fail over status %d", code)
 	}
 
