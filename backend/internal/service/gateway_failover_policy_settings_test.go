@@ -249,7 +249,7 @@ func TestGatewayFailoverPolicy_DisablesStructured400Failover(t *testing.T) {
 	svc := newOpenAIFailoverPolicyTestService(t, settings)
 	body := []byte(`{"error":{"code":"rate_limit_exceeded"},"code":"rate_limit_exceeded","limit_type":"rpm"}`)
 
-	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadRequest, "", body))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadRequest, "", body))
 
 	account := &Account{ID: 9001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 	require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadRequest, http.Header{}, body))
@@ -264,7 +264,32 @@ func TestGatewayFailoverPolicy_DisablesHTTP5xxFailover(t *testing.T) {
 	svc := newOpenAIFailoverPolicyTestService(t, settings)
 	body := []byte(`{"error":{"message":"temporary upstream failure"}}`)
 
-	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadGateway, "temporary upstream failure", body))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadGateway, "temporary upstream failure", body))
+}
+
+func TestGatewayFailoverPolicy_ModelNotFoundRemainsSystemFailover(t *testing.T) {
+	settings := *DefaultGatewayFailoverPolicySettings()
+	settings.Rules = []GatewayFailoverRule{{
+		ID:       "do-not-failover-model-not-found",
+		Enabled:  true,
+		Priority: 1,
+		Event:    GatewayFailoverRuleEventHTTPResponse,
+		Match: GatewayFailoverRuleMatch{
+			StatusCodes: []int{http.StatusBadRequest},
+		},
+		Action: GatewayFailoverRuleAction{Failover: false},
+	}}
+	svc := newOpenAIFailoverPolicyTestService(t, settings)
+	svc.accountRepo = &modelNotFoundManagedAccountRepo{}
+	account := &Account{ID: 9002, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	body := []byte(`{"error":{"code":"model_not_found","message":"model not found"}}`)
+
+	decision := svc.decideOpenAIUpstreamHTTPFailover(
+		context.Background(), account, http.StatusBadRequest, http.Header{}, "model not found", body,
+	)
+	require.NotNil(t, decision)
+	require.True(t, decision.Failover)
+	require.Equal(t, "model_not_found", decision.SystemReason)
 }
 
 func TestGatewayFailoverPolicy_RequestTooLargeTierLimitFailsOverAndClearsSession(t *testing.T) {
