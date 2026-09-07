@@ -65,7 +65,7 @@ func TestOpenAIUpstreamRateLimitExceededRPM_ShouldFailover(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	body := []byte(`{"error":{"code":"rate_limit_exceeded","message":"busy"},"code":"rate_limit_exceeded","limit_type":"rpm"}`)
 
-	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadRequest, "", body))
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadRequest, "", body))
 }
 
 func TestOpenAIUpstreamRateLimitExceededRPM_RuntimeBlocksForTenMinutes(t *testing.T) {
