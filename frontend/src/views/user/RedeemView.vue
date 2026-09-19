@@ -345,7 +345,7 @@
                 :disabled="loadingHistory || submitting"
                 @change="fetchHistory(1)"
               >
-                <option v-for="size in [20, 50, 100]" :key="size" :value="size">{{ size }}</option>
+                <option v-for="size in historyPageSizeOptions" :key="size" :value="size">{{ size }}</option>
               </select>
             </label>
             <button
@@ -375,6 +375,8 @@ import { redeemAPI, authAPI, type RedeemHistoryItem } from '@/api'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTime } from '@/utils/format'
+import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { getConfiguredTablePageSizeOptions } from '@/utils/tablePreferences'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -400,10 +402,15 @@ const errorMessage = ref('')
 const history = ref<RedeemHistoryItem[]>([])
 const loadingHistory = ref(false)
 const historyPage = ref(1)
-const historyPageSize = ref(20)
+// The history endpoint caps each page at 100, even if the global table limit is higher.
+const historyPageSize = ref(Math.min(100, getPersistedPageSize()))
+const historyPageSizeOptions = computed(() => Array.from(new Set([
+  ...getConfiguredTablePageSizeOptions().map(size => Math.min(100, size)),
+  historyPageSize.value,
+])).sort((a, b) => a - b))
 const historyTotal = ref(0)
 let historyRequest = 0
-let loadedHistoryPageSize = 20
+let loadedHistoryPageSize = historyPageSize.value
 const contactInfo = ref('')
 
 // Helper functions for history display

@@ -44,6 +44,7 @@ async function submitCode() {
 describe('RedeemView refresh after redemption', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubGlobal('__APP_CONFIG__', undefined)
     redeem.mockResolvedValue({ type: 'balance', value: 20, message: 'Code applied' })
     getHistory.mockResolvedValue({ items: [], total: 0 })
     refreshUser.mockResolvedValue({ balance: 30, concurrency: 2 })
@@ -53,6 +54,7 @@ describe('RedeemView refresh after redemption', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it.each(['balance', 'concurrency', 'subscription'])(
@@ -99,7 +101,7 @@ describe('RedeemView refresh after redemption', () => {
     await button('pagination.previous').trigger('click')
     await flushPromises()
     expect(getHistory).toHaveBeenLastCalledWith(1, 20)
-    expect(wrapper.findAll('select option').map(o => o.text())).toEqual(['20', '50', '100'])
+    expect(wrapper.findAll('select option').map(o => o.text())).toEqual(['10', '20', '50', '100'])
     await wrapper.get('select').setValue('50')
     await flushPromises()
     expect(getHistory).toHaveBeenLastCalledWith(1, 50)
@@ -116,6 +118,31 @@ describe('RedeemView refresh after redemption', () => {
     expect(getHistory).toHaveBeenLastCalledWith(1, 100)
     expect(wrapper.text()).toContain('102')
     expect(button('pagination.previous').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it.each([
+    { configured: 50, options: [10, 50, 100], expected: 50 },
+    { configured: 1000, options: [20, 50, 1000], expected: 100 },
+  ])('uses the global page size $configured within the history API limit', async ({ configured, options, expected }) => {
+    vi.stubGlobal('__APP_CONFIG__', {
+      table_default_page_size: configured,
+      table_page_size_options: options,
+    })
+    const wrapper = mount(RedeemView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Icon: true } },
+    })
+    await flushPromises()
+    expect(getHistory).toHaveBeenLastCalledWith(1, expected)
+    expect(wrapper.get('select').element.value).toBe(String(expected))
+    expect(wrapper.findAll('select option').map(o => Number(o.text())))
+      .toEqual(options.map(size => Math.min(100, size)))
+
+    getHistory.mockRejectedValueOnce(new Error('Network error'))
+    await wrapper.get('select').setValue(String(options[0]))
+    await flushPromises()
+    expect(wrapper.get('select').element.value).toBe(String(expected))
+    expect(showError).toHaveBeenCalledWith('redeem.historyLoadFailed')
     wrapper.unmount()
   })
 
