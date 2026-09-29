@@ -386,7 +386,6 @@ const { t, locale } = useI18n()
 
 const props = defineProps<{
   modelValue: string[]
-  modelMappings?: { from: string; to: string }[]
   platform?: string
   platforms?: string[]
   accountId?: number
