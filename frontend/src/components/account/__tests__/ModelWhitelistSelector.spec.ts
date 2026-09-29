@@ -185,6 +185,19 @@ describe('ModelWhitelistSelector', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([[['gpt-latest']]])
   })
 
+  it('adds an allowed custom model to both candidate and enabled lists', async () => {
+    const wrapper = mountSelector({
+      modelMappings: [{ from: 'gpt-latest', to: 'gpt-latest' }],
+      enableModelSelection: true,
+      enabledModels: []
+    })
+    await wrapper.get('input[placeholder="admin.accounts.enterCustomModelName"]').setValue('gpt-latest')
+    await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.addModel')!.trigger('click')
+
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['gpt-latest']]])
+    expect(wrapper.emitted('update:enabledModels')).toEqual([[['gpt-latest']]])
+  })
+
   it('still allows custom models without a mapping prop', async () => {
     const wrapper = mountSelector()
     await wrapper.get('input[placeholder="admin.accounts.enterCustomModelName"]').setValue('custom-model')
