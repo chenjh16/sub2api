@@ -223,6 +223,33 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it('creates a native TypeSafe whitelist after switching from Grok', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Grok')
+    await selectButtonByText(wrapper, 'TypeSafe / Jev')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.accounts.upstream.apiKeyHint')
+    expect(wrapper.text()).not.toContain('admin.accounts.apiKeyHint')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('TypeSafe test')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('ts-test')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      platform: 'typesafe',
+      type: 'apikey',
+      credentials: {
+        base_url: 'https://api.typesafe.ai',
+        model_mapping: { 'jev-latest': 'jev-latest' },
+        model_candidates: ['jev-latest'],
+        model_selection_enabled: true
+      }
+    })
+    wrapper.unmount()
+  })
+
   it('sets month and year expiry presets without submitting the account form', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-01-31T12:34:00'))
