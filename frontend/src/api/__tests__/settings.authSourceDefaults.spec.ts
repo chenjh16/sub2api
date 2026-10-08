@@ -243,6 +243,7 @@ describe("normalizePlatformQuotasMap", () => {
     expect(result.grok).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.kimi).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.opencode_go).toEqual({ daily: null, weekly: null, monthly: null });
+    expect(result.typesafe).toEqual({ daily: null, weekly: null, monthly: null });
   });
 
   it("无参数时返回平台清单中的全部平台全 null", () => {
