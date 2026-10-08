@@ -4140,7 +4140,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   // Grok 与通用多协议供应商没有对应的专属说明文案。
   if (form.platform === 'grok') return ''
-  if (isCNPlatform.value) return t('admin.accounts.upstream.apiKeyHint')
+  if (isCNPlatform.value || form.platform === 'typesafe') return t('admin.accounts.upstream.apiKeyHint')
   if (isMultiProtocolPlatform.value) return ''
   return t('admin.accounts.apiKeyHint')
 })
