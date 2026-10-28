@@ -80,3 +80,32 @@ func TestAccountPrepareSharedSnapshot_NilAccountAndNoMapping(t *testing.T) {
 	require.Nil(t, replica.GetModelMapping())
 	require.Equal(t, "claude-sonnet", replica.GetMappedModel("claude-sonnet"))
 }
+
+func TestAccountPrepareSharedSnapshot_ModelSelectionPreservedAcrossCopies(t *testing.T) {
+	for _, platform := range []string{PlatformAntigravity, PlatformGrok} {
+		t.Run(platform, func(t *testing.T) {
+			master := &Account{Platform: platform, Credentials: map[string]any{}}
+			master.PrepareSharedSnapshot()
+			defaults := master.GetModelMapping()
+			require.NotEmpty(t, defaults)
+			var model string
+			for key := range defaults {
+				model = key
+				break
+			}
+
+			replica := *master
+			replica.Credentials = map[string]any{"model_selection_enabled": true}
+			replica.PrepareSharedSnapshot()
+			selected := replica
+			require.Empty(t, selected.GetModelMapping())
+			require.False(t, selected.IsModelSupported(model))
+			require.Equal(t, defaults, master.GetModelMapping())
+
+			selected.Credentials = map[string]any{"model_selection_enabled": false}
+			require.Equal(t, defaults, selected.GetModelMapping())
+			require.True(t, selected.IsModelSupported(model))
+			require.False(t, replica.IsModelSupported(model))
+		})
+	}
+}

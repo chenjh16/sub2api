@@ -91,6 +91,13 @@ vi.mock('@/api/admin/accounts', () => ({
   }
 }))
 
+vi.mock('@/api/admin/settings', () => ({
+  settingsAPI: {
+    getModelMappingAutomationSettings: vi.fn().mockResolvedValue({ rules: [], batch_test_concurrency: 3 }),
+    updateModelMappingAutomationSettings: vi.fn()
+  }
+}))
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
@@ -1082,7 +1089,7 @@ describe('EditAccountModal Grok OAuth upstream config', () => {
     expect((wrapper.get('input[placeholder="admin.accounts.actualModel"]').element as HTMLInputElement).value).toBe('grok-4.7')
   })
 
-  it('persists the edited oauth base URL and appended whitelist without diagnostics', async () => {
+  it('keeps synced Grok models as candidates until explicitly enabled and preserves the draft', async () => {
     const account = buildGrokOAuthAccount({
       base_url: 'https://my-relay.example.com',
       model_mapping: { 'keep-local': 'keep-local' }
@@ -1096,17 +1103,27 @@ describe('EditAccountModal Grok OAuth upstream config', () => {
     await wrapper.get('[data-testid="grok-diagnostics-sync"]').trigger('click')
     await flushPromises()
     expect((input.element as HTMLInputElement).value).toBe('https://draft.example.com')
+    const selector = wrapper.getComponent({ name: 'ModelWhitelistSelector' })
+    expect(selector.props('modelValue')).toEqual(['keep-local', 'new-catalog-id'])
+    expect(selector.props('enabledModels')).toEqual(['keep-local'])
 
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await vi.waitFor(() => expect(updateAccountMock).toHaveBeenCalledTimes(1))
     const payload = updateAccountMock.mock.calls[0]?.[1]
     expect(payload?.credentials?.base_url).toBe('https://draft.example.com')
-    expect(payload?.credentials?.model_mapping).toEqual({
+    expect(payload?.credentials?.model_mapping).toEqual({ 'keep-local': 'keep-local' })
+    expect(payload?.credentials?.model_candidates).toEqual(['keep-local', 'new-catalog-id'])
+    expect(payload?.credentials?.model_selection_enabled).toBe(true)
+    expect(payload?.credentials?.grok_model_diagnostics).toBeUndefined()
+    expect(payload?.grok_model_diagnostics).toBeUndefined()
+
+    await selector.get('button[title="admin.accounts.enableModel"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await vi.waitFor(() => expect(updateAccountMock).toHaveBeenCalledTimes(2))
+    expect(updateAccountMock.mock.calls[1]?.[1]?.credentials?.model_mapping).toEqual({
       'keep-local': 'keep-local',
       'new-catalog-id': 'new-catalog-id'
     })
-    expect(payload?.credentials?.grok_model_diagnostics).toBeUndefined()
-    expect(payload?.grok_model_diagnostics).toBeUndefined()
   })
 
   it('persists the edited api key base URL after a failed shared sync', async () => {

@@ -113,6 +113,34 @@ func TestGrokCatalogSyncConfiguredFallbackDoesNotRefreshSuccess(t *testing.T) {
 	}
 }
 
+func TestGrokModelAutoRefreshConfiguredFallbackPreservesSelectionAndSuccess(t *testing.T) {
+	account := grokCatalogAccountWithSuccess([]string{"grok-4.7"}, time.Now().Add(-time.Hour).UTC())
+	account.Credentials[accountModelAutoRefreshEnabledKey] = true
+	account.Credentials[accountModelAutoRefreshLastSuccessAtKey] = "2026-10-27T00:00:00Z"
+	account.Credentials["model_mapping"] = map[string]any{"alias": "grok-configured"}
+	account.Credentials["model_candidates"] = []string{"keep-candidate"}
+	account.Credentials["model_selection_enabled"] = true
+	catalogRepo := newGrokCatalogMemoryRepo(account)
+	refreshRepo := &accountModelAutoRefreshRepoStub{account: account}
+	upstream := newGrokCatalogUpstream(http.StatusNotFound, `{}`, http.StatusBadGateway, `{}`)
+	svc := &AccountModelAutoRefreshService{
+		accountRepo:    refreshRepo,
+		accountTestSvc: grokCatalogSyncService(catalogRepo, upstream),
+	}
+	now := time.Date(2026, 10, 28, 1, 0, 0, 0, time.UTC)
+	svc.refreshOneAccount(context.Background(), account, accountModelAutoRefreshConfig{Enabled: true, TestFilter: true}, now)
+
+	require.NotNil(t, refreshRepo.updated)
+	credentials := refreshRepo.updated.Credentials
+	require.Equal(t, "2026-10-27T00:00:00Z", credentials[accountModelAutoRefreshLastSuccessAtKey])
+	require.Equal(t, now.Format(time.RFC3339), credentials[accountModelAutoRefreshLastRunAtKey])
+	require.Contains(t, credentials[accountModelAutoRefreshLastErrorKey], "configured models were not refreshed")
+	require.Equal(t, []string{"keep-candidate"}, credentials["model_candidates"])
+	require.Equal(t, map[string]any{"alias": "grok-configured"}, credentials["model_mapping"])
+	require.True(t, credentials["model_selection_enabled"].(bool))
+	require.Len(t, upstream.modelsRequests(), 1)
+}
+
 func TestGrokCatalogSyncKeepsSuccessOnHTTPErrors(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, http.StatusInternalServerError} {
 		t.Run(http.StatusText(status), func(t *testing.T) {

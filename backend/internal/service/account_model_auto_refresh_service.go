@@ -183,6 +183,10 @@ func (s *AccountModelAutoRefreshService) refreshOneAccount(ctx context.Context, 
 		s.persistAutoRefreshFailure(ctx, account.ID, "upstream returned an empty model catalog", now)
 		return
 	}
+	if catalog.DiscoverySource == grokCatalogStatusConfiguredFallback {
+		s.persistAutoRefreshFailure(ctx, account.ID, "upstream model list unavailable; configured models were not refreshed", now)
+		return
+	}
 	models := catalog.Models
 	models = normalizeAccountModelAutoRefreshModels(models)
 	if len(models) == 0 {
