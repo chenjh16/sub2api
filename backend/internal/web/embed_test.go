@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -293,6 +294,8 @@ func TestFrontendServer_ServeIndexHTML(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
+		assert.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+		assert.Empty(t, w.Header().Get("ETag"))
 
 		body := w.Body.String()
 		// Nonce placeholder should be replaced
@@ -342,7 +345,6 @@ func TestFrontendServer_ServeIndexHTML(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
-		c.Set(middleware.CSPNonceKey, "nonce123")
 
 		server.serveIndexHTML(c)
 
@@ -362,10 +364,6 @@ func TestFrontendServer_ServeIndexHTML(t *testing.T) {
 
 		// Use a real router for proper 304 handling
 		router := gin.New()
-		router.Use(func(c *gin.Context) {
-			c.Set(middleware.CSPNonceKey, "test-nonce")
-			c.Next()
-		})
 		router.Use(server.Middleware())
 
 		// First request to populate cache and get ETag
@@ -385,6 +383,37 @@ func TestFrontendServer_ServeIndexHTML(t *testing.T) {
 		assert.Empty(t, w2.Body.String())
 	})
 
+	t.Run("conditional_request_with_csp_gets_fresh_html", func(t *testing.T) {
+		provider := &mockSettingsProvider{settings: map[string]string{"test": "value"}}
+		server, err := NewFrontendServer(provider)
+		require.NoError(t, err)
+
+		legacy := httptest.NewRecorder()
+		legacyContext, _ := gin.CreateTestContext(legacy)
+		legacyContext.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		server.serveIndexHTML(legacyContext)
+		etag := legacy.Header().Get("ETag")
+		require.NotEmpty(t, etag)
+
+		router := gin.New()
+		router.Use(middleware.SecurityHeaders(config.CSPConfig{Enabled: true}, nil), server.Middleware())
+		request := httptest.NewRequest(http.MethodGet, "/", nil)
+		request.Header.Set("If-None-Match", etag)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+
+		require.Equal(t, http.StatusOK, response.Code)
+		assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+		assert.Empty(t, response.Header().Get("ETag"))
+		_, policyNonce, ok := strings.Cut(response.Header().Get("Content-Security-Policy"), "'nonce-")
+		require.True(t, ok)
+		nonce, _, ok := strings.Cut(policyNonce, "'")
+		require.True(t, ok)
+		require.NotEmpty(t, nonce)
+		assert.Contains(t, response.Body.String(), `nonce="`+nonce+`"`)
+		assert.Equal(t, 1, provider.called)
+	})
+
 	t.Run("sets_cache_control_header", func(t *testing.T) {
 		provider := &mockSettingsProvider{
 			settings: map[string]string{"test": "value"},
@@ -396,7 +425,6 @@ func TestFrontendServer_ServeIndexHTML(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
-		c.Set(middleware.CSPNonceKey, "nonce123")
 
 		server.serveIndexHTML(c)
 
