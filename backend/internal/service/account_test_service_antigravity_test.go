@@ -58,7 +58,7 @@ func TestAntigravityAccountTest_MappedPromptsAndImageEvents(t *testing.T) {
 				require.Equal(t, `["TEXT","IMAGE"]`, gjson.GetBytes(body, "request.generationConfig.responseModalities").Raw)
 				require.False(t, gjson.GetBytes(body, "request.generationConfig.maxOutputTokens").Exists())
 			} else {
-				require.Equal(t, int64(128), gjson.GetBytes(body, "request.generationConfig.maxOutputTokens").Int())
+				require.EqualValues(t, antigravityTestMaxOutputTokens, gjson.GetBytes(body, "request.generationConfig.maxOutputTokens").Int())
 			}
 			require.Contains(t, recorder.Body.String(), `"type":"image"`)
 			require.Contains(t, recorder.Body.String(), "data:image/png;base64,iVBORw0KGgo=")
@@ -139,15 +139,15 @@ func TestAntigravityShouldUseGeminiTestBuilder_UsesMappedModel(t *testing.T) {
 	require.False(t, shouldUseAntigravityGeminiTestRequest("claude-sonnet-4-6", "claude-sonnet-4-6"))
 }
 
-// Every other platform's connection test sends the admin's prompt (default "hi") and lets the
+// Every other platform's connection test sends the admin's prompt or the default and lets the
 // model answer. The Antigravity text test sent "." with maxOutputTokens 1, ignoring the prompt,
 // so thinking models (gemini-4-argon, gemini-3.8-flash) spent that token thinking and the test
-// showed "sent: hi" with an empty response.
+// showed an empty response.
 func TestAntigravityBuildGeminiTestRequest_UsesPromptAndRoomToAnswer(t *testing.T) {
 	t.Parallel()
 
 	svc := &AntigravityGatewayService{}
-	for _, tc := range []struct{ prompt, want string }{{"hello there", "hello there"}, {"", "hi"}, {"   ", "hi"}} {
+	for _, tc := range []struct{ prompt, want string }{{"hello there", "hello there"}, {"", defaultTextTestPromptEN}, {"   ", defaultTextTestPromptEN}} {
 		raw, err := svc.buildGeminiTestRequestWithPrompt("proj-123", "gemini-4-argon-high", tc.prompt)
 		require.NoError(t, err)
 		var v1Req map[string]any
@@ -172,5 +172,5 @@ func TestAntigravityBuildClaudeTestRequest_UsesPromptAndRoomToAnswer(t *testing.
 
 	raw, err = svc.buildClaudeTestRequest("proj-123", "claude-sonnet-4-6", "")
 	require.NoError(t, err)
-	require.Contains(t, string(raw), `"hi"`)
+	require.Equal(t, defaultTextTestPromptEN, gjson.GetBytes(raw, "request.contents.0.parts.0.text").String())
 }

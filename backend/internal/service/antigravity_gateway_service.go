@@ -533,7 +533,7 @@ func (s *AntigravityGatewayService) buildGeminiTestRequestWithPrompt(projectID, 
 }
 
 // buildClaudeTestRequest 构建 Claude 格式测试请求并转换为 Gemini 格式
-// 与其他平台一致：发送管理员输入的提示词（默认 "hi"），留出足够的输出 token 以便模型回答。
+// 与其他平台一致：发送管理员输入的提示词或默认测试提示词，留出足够的输出 token。
 func (s *AntigravityGatewayService) buildClaudeTestRequest(projectID, mappedModel, prompt string) ([]byte, error) {
 	content, err := json.Marshal(antigravityTestPrompt(prompt))
 	if err != nil {
@@ -567,7 +567,7 @@ func (s *AntigravityGatewayService) getClaudeTransformOptions(ctx context.Contex
 // test prompt. It was 1, so gemini-4-argon / gemini-3.8-flash returned no text at all.
 const antigravityTestMaxOutputTokens = 256
 
-// antigravityTestPrompt is the admin's test prompt, or "hi" like the other platforms' tests.
+// antigravityTestPrompt uses the same default as the other account tests.
 func antigravityTestPrompt(prompt string) string {
 	if trimmed := strings.TrimSpace(prompt); trimmed != "" {
 		return trimmed
